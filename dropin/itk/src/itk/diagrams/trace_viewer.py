@@ -92,6 +92,8 @@ class MessageInfo:
     request: dict[str, Any] | None
     response: dict[str, Any] | None
     error: dict[str, Any] | None
+    is_response: bool = False  # True for return arrows, False for call arrows
+    timestamp: str | None = None  # For timeline ordering
 
 
 def _get_component_type(component: str) -> str:
@@ -152,14 +154,120 @@ def _extract_participants(trace: Trace) -> list[ParticipantInfo]:
     return list(seen.values())
 
 
+
 def _extract_messages(
     trace: Trace, participants: list[ParticipantInfo]
 ) -> list[MessageInfo]:
-    """Extract messages from trace spans."""
-    messages: list[MessageInfo] = []
+    """Extract messages from trace spans using timeline-based ordering.
+
+    If timestamps are available, produces separate request and response arrows
+    in chronological order. Otherwise, falls back to span-order processing.
+    """
     span_map = {s.span_id: s for s in trace.spans}
     participant_map = {p.label: p for p in participants}
 
+    # Check if we have timestamps for timeline-based rendering
+    has_timestamps = any(s.ts_start for s in trace.spans)
+
+    if has_timestamps:
+        return _extract_messages_timeline(trace, span_map, participant_map)
+    else:
+        return _extract_messages_legacy(trace, span_map, participant_map)
+
+
+def _extract_messages_timeline(
+    trace: Trace,
+    span_map: dict[str, Span],
+    participant_map: dict[str, ParticipantInfo],
+) -> list[MessageInfo]:
+    """Extract messages using timestamp ordering (request + response arrows)."""
+    # Build list of events (request at ts_start, response at ts_end)
+    events: list[tuple[str, bool, Span]] = []  # (timestamp, is_response, span)
+
+    for span in trace.spans:
+        # Request event at ts_start
+        if span.ts_start:
+            events.append((span.ts_start, False, span))
+
+        # Response event at ts_end (only if has response or error)
+        if span.ts_end and (span.response is not None or span.error is not None):
+            events.append((span.ts_end, True, span))
+
+    # Sort by timestamp, then responses after requests at same time
+    events.sort(key=lambda e: (e[0], 1 if e[1] else 0))
+
+    # Convert to MessageInfo objects
+    messages: list[MessageInfo] = []
+    y_pos = PARTICIPANT_HEADER_HEIGHT + 40
+
+    for timestamp, is_response, span in events:
+        # Determine caller (parent) and callee (this span)
+        if span.parent_span_id and span.parent_span_id in span_map:
+            caller_comp = span_map[span.parent_span_id].component
+        else:
+            caller_comp = span.component
+
+        callee_comp = span.component
+
+        caller = participant_map.get(caller_comp)
+        callee = participant_map.get(callee_comp)
+
+        if not caller or not callee:
+            continue
+
+        if is_response:
+            # Response: arrow goes from callee back to caller
+            messages.append(
+                MessageInfo(
+                    span_id=span.span_id,
+                    span=span,
+                    from_participant=callee,
+                    to_participant=caller,
+                    operation=f"{span.operation} response",
+                    attempt=span.attempt or 1,
+                    latency_ms=_compute_latency(span),
+                    has_error=span.error is not None,
+                    y_position=y_pos,
+                    request=None,
+                    response=span.response,
+                    error=span.error,
+                    is_response=True,
+                    timestamp=timestamp,
+                )
+            )
+        else:
+            # Request: arrow goes from caller to callee
+            messages.append(
+                MessageInfo(
+                    span_id=span.span_id,
+                    span=span,
+                    from_participant=caller,
+                    to_participant=callee,
+                    operation=span.operation,
+                    attempt=span.attempt or 1,
+                    latency_ms=None,  # Latency shown on response
+                    has_error=False,  # Error shown on response
+                    y_position=y_pos,
+                    request=span.request,
+                    response=None,
+                    error=None,
+                    is_response=False,
+                    timestamp=timestamp,
+                )
+            )
+
+        y_pos += MESSAGE_HEIGHT
+
+    return messages
+
+
+def _extract_messages_legacy(
+    trace: Trace,
+    span_map: dict[str, Span],
+    participant_map: dict[str, ParticipantInfo],
+) -> list[MessageInfo]:
+    """Extract messages in span order (legacy, no timestamps)."""
+    messages: list[MessageInfo] = []
     y_pos = PARTICIPANT_HEADER_HEIGHT + 40
 
     for span in trace.spans:
@@ -251,32 +359,35 @@ def _render_svg_participant(p: ParticipantInfo, height: int) -> str:
 
 
 def _render_svg_message(msg: MessageInfo, span_tree: dict[str, list[str]]) -> str:
-    """Render SVG for a message with call and return arrows.
-    
-    Visual structure:
-    - Call arrow: caller → callee (solid)
-    - Activation box: on callee lifeline during span duration
-    - Status indicator: ✅ or ❌ on activation box
-    - Return arrow: callee → caller (dashed, unless async/fire-and-forget)
+    """Render SVG for a message arrow.
+
+    With timeline-based ordering, each message is either:
+    - A request arrow (solid): caller → callee
+    - A response arrow (dashed): callee → caller
+
+    Legacy mode (no timestamps): renders both call and return in one message.
     """
     from_x = msg.from_participant.x_center
     to_x = msg.to_participant.x_center
     y = msg.y_position
-    
+
     is_self = from_x == to_x
     is_error = msg.has_error
     is_retry = msg.attempt > 1
+    is_response = getattr(msg, 'is_response', False)
     is_async = getattr(msg.span, 'is_async', False) or getattr(msg.span, 'is_one_way', False)
-    
+
     error_class = "error" if is_error else ""
-    retry_badge = f'<text x="{max(from_x, to_x) + 10}" y="{y - 20}" class="retry-badge">retry {msg.attempt}</text>' if is_retry else ""
-    
+    # Position retry badge on the left side, only show on request arrows (not response)
+    # Place it at x=30 (left margin) at the message's y position
+    retry_badge = f'<text x="30" y="{y + 4}" class="retry-badge">🔄 retry {msg.attempt - 1}</text>' if is_retry and not is_response else ""
+
     latency_text = f"{msg.latency_ms:.0f}ms" if msg.latency_ms else ""
-    
-    # Status indicator
-    status_icon = "❌" if is_error else "✅"
+
+    # Status indicator (only on response arrows or legacy mode)
+    status_icon = "❌" if is_error else "✅" if is_response or not msg.timestamp else ""
     status_class = "status-error" if is_error else "status-success"
-    
+
     span_data = html.escape(json.dumps({
         "span_id": msg.span_id,
         "operation": msg.operation,
@@ -286,30 +397,125 @@ def _render_svg_message(msg: MessageInfo, span_tree: dict[str, list[str]]) -> st
         "attempt": msg.attempt,
         "has_error": is_error,
         "is_async": is_async,
+        "is_response": is_response,
         "request": msg.request,
         "response": msg.response,
         "error": msg.error,
     }))
-    
+
+    # Timeline mode: separate request and response arrows
+    if msg.timestamp is not None:
+        return _render_svg_message_timeline(
+            msg, from_x, to_x, y, is_self, is_error, is_response,
+            retry_badge, latency_text, status_icon, status_class, span_data
+        )
+
+    # Legacy mode: combined call + return arrows
+    return _render_svg_message_legacy(
+        msg, from_x, to_x, y, is_self, is_error, is_async,
+        retry_badge, latency_text, status_icon, status_class, span_data
+    )
+
+
+def _render_svg_message_timeline(
+    msg: MessageInfo,
+    from_x: int,
+    to_x: int,
+    y: int,
+    is_self: bool,
+    is_error: bool,
+    is_response: bool,
+    retry_badge: str,
+    latency_text: str,
+    status_icon: str,
+    status_class: str,
+    span_data: str,
+) -> str:
+    """Render a single arrow (request or response) in timeline mode."""
+    error_class = "error" if is_error else ""
+    response_class = "response-message" if is_response else "request-message"
+    arrow_marker = "url(#arrowhead-return)" if is_response else "url(#arrowhead)"
+    dash_array = 'stroke-dasharray="4,2"' if is_response else ""
+
     if is_self:
-        # Self-call: curved arrow with activation box
+        # Self-call: use entry/exit indicators instead of curved arrows
+        # Entry: downward arrow into activation bar
+        # Exit: checkmark or X status indicator
+        if is_response:
+            # Exit/return - arrow from lifeline extending LEFT (mirror of entry)
+            return f'''
+        <g class="message self-message {error_class} {response_class}" data-span-id="{msg.span_id}" data-span='{span_data}'>
+            <!-- Exit indicator - arrow from lifeline to left -->
+            <line x1="{from_x - 8}" y1="{y}" x2="{from_x - 50}" y2="{y}"
+                  stroke="currentColor" stroke-width="2" {dash_array} marker-end="{arrow_marker}"/>
+            <!-- Status indicator and latency on left -->
+            <text x="{from_x - 58}" y="{y + 4}" text-anchor="end" class="status-indicator {status_class}">{status_icon} {latency_text}</text>
+        </g>'''
+        else:
+            # Entry/request - show operation label with entry arrow
+            return f'''
+        <g class="message self-message {error_class} {response_class}" data-span-id="{msg.span_id}" data-span='{span_data}'>
+            <!-- Entry indicator - short horizontal line with downward arrow -->
+            <line x1="{from_x - 50}" y1="{y}" x2="{from_x - 8}" y2="{y}"
+                  stroke="currentColor" stroke-width="2" marker-end="{arrow_marker}"/>
+            <!-- Entry marker -->
+            <text x="{from_x - 58}" y="{y + 4}" text-anchor="end" class="message-label">▶ {html.escape(msg.operation)}</text>
+            {retry_badge}
+        </g>'''
+    else:
+        # Normal arrow between participants
+        direction = 1 if to_x > from_x else -1
+        mid_x = (from_x + to_x) // 2
+        arrow_offset = 8 * direction
+
+        return f'''
+        <g class="message {error_class} {response_class}" data-span-id="{msg.span_id}" data-span='{span_data}'>
+            <line x1="{from_x + arrow_offset}" y1="{y}" x2="{to_x - arrow_offset}" y2="{y}"
+                  stroke="currentColor" stroke-width="2" {dash_array} marker-end="{arrow_marker}"/>
+            <text x="{mid_x}" y="{y - 8}" text-anchor="middle" class="message-label">{html.escape(msg.operation)}</text>
+            {f'<text x="{mid_x}" y="{y + 15}" text-anchor="middle" class="message-latency">{latency_text}</text>' if latency_text else ''}
+            {f'<text x="{to_x}" y="{y + 4}" text-anchor="middle" class="status-indicator {status_class}">{status_icon}</text>' if status_icon else ''}
+            {retry_badge}
+        </g>'''
+
+
+def _render_svg_message_legacy(
+    msg: MessageInfo,
+    from_x: int,
+    to_x: int,
+    y: int,
+    is_self: bool,
+    is_error: bool,
+    is_async: bool,
+    retry_badge: str,
+    latency_text: str,
+    status_icon: str,
+    status_class: str,
+    span_data: str,
+) -> str:
+    """Render combined call + return arrows (legacy mode, no timestamps)."""
+    error_class = "error" if is_error else ""
+
+    if is_self:
+        # Self-call: entry/exit with activation bar instead of curved arrows
         activation_height = 30
         return f'''
         <g class="message self-message {error_class}" data-span-id="{msg.span_id}" data-span='{span_data}'>
-            <!-- Call arrow (curved out) -->
-            <path d="M {from_x} {y} C {from_x + 50} {y}, {from_x + 50} {y}, {from_x + 50} {y + activation_height // 2}"
-                  fill="none" stroke="currentColor" stroke-width="2" marker-end="url(#arrowhead)"/>
+            <!-- Entry arrow from left -->
+            <line x1="{from_x - 50}" y1="{y}" x2="{from_x - 8}" y2="{y}"
+                  stroke="currentColor" stroke-width="2" marker-end="url(#arrowhead)"/>
+            <!-- Entry label -->
+            <text x="{from_x - 58}" y="{y + 4}" text-anchor="end" class="message-label">▶ {html.escape(msg.operation)}</text>
             <!-- Activation box -->
             <rect x="{from_x - 8}" y="{y}" width="16" height="{activation_height}" 
                   fill="var(--panel-bg)" stroke="currentColor" stroke-width="1" class="activation-box"/>
-            <!-- Status indicator -->
+            <!-- Status indicator inside box -->
             <text x="{from_x}" y="{y + activation_height // 2 + 4}" text-anchor="middle" class="status-indicator {status_class}">{status_icon}</text>
-            <!-- Return arrow (curved back) -->
-            <path d="M {from_x + 50} {y + activation_height // 2} C {from_x + 50} {y + activation_height}, {from_x + 50} {y + activation_height}, {from_x + 8} {y + activation_height}"
-                  fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="4,2" marker-end="url(#arrowhead-return)"/>
-            <!-- Labels -->
-            <text x="{from_x + 60}" y="{y + 10}" class="message-label">{html.escape(msg.operation)}</text>
-            <text x="{from_x + 60}" y="{y + 25}" class="message-latency">{latency_text}</text>
+            <!-- Exit arrow to left (mirror of entry) -->
+            <line x1="{from_x - 8}" y1="{y + activation_height}" x2="{from_x - 50}" y2="{y + activation_height}"
+                  stroke="currentColor" stroke-width="2" stroke-dasharray="4,2" marker-end="url(#arrowhead-return)"/>
+            <!-- Latency on exit -->
+            <text x="{from_x - 58}" y="{y + activation_height + 4}" text-anchor="end" class="message-latency">◀ {latency_text}</text>
             {retry_badge}
         </g>'''
     else:
@@ -319,13 +525,13 @@ def _render_svg_message(msg: MessageInfo, span_tree: dict[str, list[str]]) -> st
         arrow_offset = 10 * direction
         activation_height = 25
         return_y = y + activation_height
-        
+
         # Return arrow (unless async)
         return_arrow = "" if is_async else f'''
             <!-- Return arrow -->
             <line x1="{to_x}" y1="{return_y}" x2="{from_x + arrow_offset}" y2="{return_y}"
                   stroke="currentColor" stroke-width="2" stroke-dasharray="4,2" marker-end="url(#arrowhead-return)"/>'''
-        
+
         return f'''
         <g class="message {error_class}" data-span-id="{msg.span_id}" data-span='{span_data}'>
             <!-- Call arrow -->
@@ -589,7 +795,8 @@ def render_trace_viewer(
         }}
         
         .message.dimmed {{
-            opacity: 0.2;
+            opacity: 0.15;
+            filter: grayscale(100%);
         }}
         
         .message.highlighted {{
@@ -636,6 +843,51 @@ def render_trace_viewer(
         
         .hidden {{
             display: none !important;
+        }}
+        
+        .search-match {{
+            filter: drop-shadow(0 0 4px var(--accent-color));
+        }}
+        
+        .search-match .message-arrow {{
+            stroke-width: 3;
+            stroke: var(--accent-color) !important;
+        }}
+        
+        .search-match .message-label {{
+            font-weight: bold;
+            fill: var(--accent-color);
+            font-size: 0.85rem;
+        }}
+        
+        /* No results indicator */
+        #no-results {{
+            display: none;
+            position: absolute;
+            top: 50%;
+            left: calc(50% - 200px);  /* Account for potential details panel */
+            transform: translate(-50%, -50%);
+            background: var(--panel-bg);
+            border: 2px solid var(--accent-color);
+            border-radius: 12px;
+            padding: 24px 40px;
+            flex-direction: column;
+            align-items: center;
+            gap: 12px;
+            z-index: 1000;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+            pointer-events: none;
+        }}
+        
+        .no-results-icon {{
+            font-size: 3rem;
+            opacity: 0.8;
+        }}
+        
+        .no-results-text {{
+            color: var(--text-color);
+            font-size: 1.1rem;
+            font-weight: 500;
         }}
         
         /* Details panel */
@@ -864,13 +1116,17 @@ def render_trace_viewer(
     
     <main class="main-content">
         <div class="svg-container">
+            <div id="no-results">
+                <span class="no-results-icon">🔍</span>
+                <span class="no-results-text">No spans match the current filters</span>
+            </div>
             <svg id="diagram" viewBox="0 0 {svg_width} {svg_height}" preserveAspectRatio="xMidYMid meet">
                 <defs>
                     <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
                         <polygon points="0 0, 10 3.5, 0 7" fill="currentColor"/>
                     </marker>
-                    <marker id="arrowhead-return" markerWidth="10" markerHeight="7" refX="1" refY="3.5" orient="auto">
-                        <polygon points="10 0, 0 3.5, 10 7" fill="currentColor"/>
+                    <marker id="arrowhead-return" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                        <polygon points="0 0, 10 3.5, 0 7" fill="currentColor"/>
                     </marker>
                 </defs>
                 <g class="svg-pan-zoom_viewport">
@@ -948,16 +1204,25 @@ def render_trace_viewer(
             controlIconsEnabled: false,
             fit: true,
             center: true,
+            contain: false,
             minZoom: 0.1,
             maxZoom: 10,
             zoomScaleSensitivity: 0.3
         }});
         
+        // Resize handler to re-center on window resize
+        window.addEventListener('resize', function() {{
+            panZoom.resize();
+            panZoom.fit();
+            panZoom.center();
+        }});
+        
         // Initialize Fuse for search
         fuse = new Fuse(spansData, {{
             keys: ['operation', 'component', 'span_id'],
-            threshold: 0.4,
-            includeScore: true
+            threshold: 0.2,
+            includeScore: true,
+            ignoreLocation: true
         }});
         
         // Setup event listeners
@@ -1056,47 +1321,63 @@ def render_trace_viewer(
         const panel = document.getElementById('details-panel');
         const content = document.getElementById('details-content');
         
+        // In timeline mode, request and response are separate messages.
+        // Merge all data for this span_id to show complete details.
+        const allSpanData = spansData.filter(s => s.span_id === span.span_id);
+        const mergedSpan = {{ ...span }};
+        
+        for (const s of allSpanData) {{
+            if (s.request && !mergedSpan.request) mergedSpan.request = s.request;
+            if (s.response && !mergedSpan.response) mergedSpan.response = s.response;
+            if (s.error && !mergedSpan.error) mergedSpan.error = s.error;
+            if (s.latency_ms && !mergedSpan.latency_ms) mergedSpan.latency_ms = s.latency_ms;
+            if (s.has_error) mergedSpan.has_error = true;
+        }}
+        
+        // Use clean operation name (remove " response" suffix for display)
+        const displayOperation = mergedSpan.operation.replace(/ response$/, '');
+        
         let html = `
             <div class="detail-section">
                 <div class="detail-label">Operation</div>
-                <div class="detail-value">${{escapeHtml(span.operation)}}</div>
+                <div class="detail-value">${{escapeHtml(displayOperation)}}</div>
             </div>
             <div class="detail-section">
                 <div class="detail-label">Component</div>
-                <div class="detail-value">${{escapeHtml(span.component)}}</div>
+                <div class="detail-value">${{escapeHtml(mergedSpan.component)}}</div>
             </div>
             <div class="detail-section">
                 <div class="detail-label">Target</div>
-                <div class="detail-value">${{escapeHtml(span.target || span.component)}}</div>
+                <div class="detail-value">${{escapeHtml(mergedSpan.target || mergedSpan.component)}}</div>
             </div>
             <div class="detail-section">
                 <div class="detail-label">Span ID</div>
-                <div class="detail-value" style="font-family: monospace; font-size: 0.75rem;">${{escapeHtml(span.span_id)}}</div>
+                <div class="detail-value" style="font-family: monospace; font-size: 0.75rem;">${{escapeHtml(mergedSpan.span_id)}}</div>
             </div>
             <div class="detail-section">
                 <div class="detail-label">Latency</div>
-                <div class="detail-value">${{span.latency_ms ? span.latency_ms.toFixed(2) + ' ms' : 'N/A'}}</div>
+                <div class="detail-value">${{mergedSpan.latency_ms ? mergedSpan.latency_ms.toFixed(2) + ' ms' : 'N/A'}}</div>
             </div>
             <div class="detail-section">
                 <div class="detail-label">Attempt</div>
-                <div class="detail-value ${{span.attempt > 1 ? 'error' : ''}}">${{span.attempt}}</div>
+                <div class="detail-value ${{mergedSpan.attempt > 1 ? 'error' : ''}}">${{mergedSpan.attempt}}</div>
             </div>
             <div class="detail-section">
                 <div class="detail-label">Status</div>
-                <div class="detail-value ${{span.has_error ? 'error' : 'success'}}">${{span.has_error ? '❌ Error' : '✅ Success'}}</div>
+                <div class="detail-value ${{mergedSpan.has_error ? 'error' : 'success'}}">${{mergedSpan.has_error ? '❌ Error' : '✅ Success'}}</div>
             </div>
         `;
         
-        if (span.request) {{
-            html += renderPayloadSection('Request', span.request, 'request');
+        if (mergedSpan.request) {{
+            html += renderPayloadSection('Request', mergedSpan.request, 'request');
         }}
         
-        if (span.response) {{
-            html += renderPayloadSection('Response', span.response, 'response');
+        if (mergedSpan.response) {{
+            html += renderPayloadSection('Response', mergedSpan.response, 'response');
         }}
         
-        if (span.error) {{
-            html += renderPayloadSection('Error', span.error, 'error', true);
+        if (mergedSpan.error) {{
+            html += renderPayloadSection('Error', mergedSpan.error, 'error', true);
         }}
         
         content.innerHTML = html;
@@ -1110,14 +1391,15 @@ def render_trace_viewer(
     function filterSpans() {{
         const searchTerm = document.getElementById('search').value.trim();
         let visibleSpanIds = new Set(spansData.map(s => s.span_id));
+        let searchMatchIds = new Set();
         
-        // Apply search filter
+        // Apply search filter - highlight matches, don't hide non-matches
         if (searchTerm) {{
             const results = fuse.search(searchTerm);
-            visibleSpanIds = new Set(results.map(r => r.item.span_id));
+            searchMatchIds = new Set(results.map(r => r.item.span_id));
         }}
         
-        // Apply active filters
+        // Apply active filters (these DO hide non-matching)
         if (activeFilters.has('errors')) {{
             const errorIds = new Set(spansData.filter(s => s.has_error).map(s => s.span_id));
             visibleSpanIds = new Set([...visibleSpanIds].filter(id => errorIds.has(id)));
@@ -1128,14 +1410,50 @@ def render_trace_viewer(
             visibleSpanIds = new Set([...visibleSpanIds].filter(id => retryIds.has(id)));
         }}
         
-        // Show/hide messages
+        // Show/hide/highlight messages
+        let visibleCount = 0;
         document.querySelectorAll('.message').forEach(el => {{
-            if (visibleSpanIds.has(el.dataset.spanId)) {{
+            const spanId = el.dataset.spanId;
+            const isVisible = visibleSpanIds.has(spanId);
+            const isSearchMatch = searchMatchIds.has(spanId);
+            
+            if (isVisible) {{
                 el.classList.remove('hidden');
+                visibleCount++;
+                
+                // Highlight search matches, dim non-matches when searching
+                if (searchTerm) {{
+                    if (isSearchMatch) {{
+                        el.classList.add('search-match');
+                        el.classList.remove('dimmed');
+                    }} else {{
+                        el.classList.remove('search-match');
+                        el.classList.add('dimmed');
+                    }}
+                }} else {{
+                    el.classList.remove('search-match', 'dimmed');
+                }}
             }} else {{
                 el.classList.add('hidden');
+                el.classList.remove('search-match', 'dimmed');
             }}
         }});
+        
+        // Show/hide "no results" message
+        const noResultsEl = document.getElementById('no-results');
+        if (noResultsEl) {{
+            if (visibleCount === 0 && (activeFilters.size > 0 || searchTerm)) {{
+                noResultsEl.style.display = 'flex';
+                const filterText = [];
+                if (activeFilters.has('errors')) filterText.push('errors');
+                if (activeFilters.has('retries')) filterText.push('retries');
+                if (searchTerm) filterText.push(`"${{searchTerm}}"`);
+                noResultsEl.querySelector('.no-results-text').textContent = 
+                    `No spans match: ${{filterText.join(' + ')}}`;
+            }} else {{
+                noResultsEl.style.display = 'none';
+            }}
+        }}
     }}
     
     function navigateSpans(direction) {{

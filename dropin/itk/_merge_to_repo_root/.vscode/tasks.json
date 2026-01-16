@@ -70,15 +70,15 @@
     {
       "label": "ITK: Open Trace Viewer",
       "type": "shell",
-      "command": "start ${input:artifactDir}/trace.html",
+      "command": "start ${input:artifactDir}/trace-viewer.html",
       "windows": {
-        "command": "start ${input:artifactDir}/trace.html"
+        "command": "start ${input:artifactDir}/trace-viewer.html"
       },
       "linux": {
-        "command": "xdg-open ${input:artifactDir}/trace.html"
+        "command": "xdg-open ${input:artifactDir}/trace-viewer.html"
       },
       "osx": {
-        "command": "open ${input:artifactDir}/trace.html"
+        "command": "open ${input:artifactDir}/trace-viewer.html"
       },
       "problemMatcher": [],
       "presentation": {

@@ -281,7 +281,8 @@ class TestHtmlRendering:
         
         html = render_html_sequence(trace)
         
-        assert "retry 2" in html
+        # attempt=2 means first retry, so badge shows "retry 1"
+        assert "retry 1" in html
         assert "retry-badge" in html
 
     def test_render_latency_display(self) -> None:

@@ -192,7 +192,7 @@ def render_html_sequence(
         
         latency_text = f"{msg.latency_ms:.0f}ms" if msg.latency_ms else ""
         error_class = "error" if msg.has_error else ""
-        retry_badge = f'<span class="retry-badge">retry {msg.attempt}</span>' if msg.attempt > 1 else ""
+        retry_badge = f'<span class="retry-badge">retry {msg.attempt - 1}</span>' if msg.attempt > 1 else ""
         
         payload_section = ""
         if include_payloads and (msg.request or msg.response or msg.error):
@@ -366,7 +366,7 @@ def render_html_sequence(
         .participants {{
             display: grid;
             grid-template-columns: repeat({num_participants}, minmax(150px, 1fr));
-            gap: 1rem;
+            gap: 0;  /* No gap - lifelines align with grid columns */
             margin-bottom: 1rem;
         }}
         
@@ -375,6 +375,7 @@ def render_html_sequence(
             flex-direction: column;
             align-items: center;
             position: relative;
+            padding: 0 0.5rem;
         }}
         
         .participant-icon {{
@@ -421,7 +422,7 @@ def render_html_sequence(
         .message {{
             display: grid;
             grid-template-columns: repeat({num_participants}, minmax(150px, 1fr));
-            gap: 1rem;
+            gap: 0;  /* No gap to align arrows with lifelines */
             position: relative;
             z-index: 1;
         }}
@@ -432,10 +433,19 @@ def render_html_sequence(
             flex-direction: column;
             align-items: center;
             gap: 0.25rem;
+            position: relative;
+            padding: 0 0.5rem;
         }}
         
         .self-message .message-content {{
             grid-column: var(--start-col);
+        }}
+        
+        .arrow-container {{
+            width: 100%;
+            position: relative;
+            display: flex;
+            justify-content: center;
         }}
         
         .message-label {{
@@ -448,6 +458,8 @@ def render_html_sequence(
             border: 1px solid var(--border-color);
             font-size: 0.875rem;
             white-space: nowrap;
+            z-index: 2;
+        }}
         }}
         
         .operation {{
@@ -486,7 +498,7 @@ def render_html_sequence(
         .arrow.right::after {{
             content: '';
             position: absolute;
-            right: 0;
+            right: -1px;
             top: -4px;
             border: 5px solid transparent;
             border-left-color: var(--arrow-color);
@@ -495,7 +507,7 @@ def render_html_sequence(
         .arrow.left::after {{
             content: '';
             position: absolute;
-            left: 0;
+            left: -1px;
             top: -4px;
             border: 5px solid transparent;
             border-right-color: var(--arrow-color);

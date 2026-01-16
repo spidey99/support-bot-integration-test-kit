@@ -68,10 +68,11 @@ itk run --mode dev-fixtures --case dropin/itk/cases/example-001.yaml --out artif
 ```
 
 **Expected**: Creates `artifacts/test-001/` with:
-- `trace-viewer.html`
-- `sequence.mmd`
-- `spans.jsonl`
-- `report.md`
+- `trace-viewer.html` — Interactive sequence diagram
+- `timeline.html` — Waterfall timeline view
+- `sequence.mmd` — Mermaid source
+- `spans.jsonl` — Raw span data
+- `report.md` — Summary with invariant results
 
 **Verify**:
 ```bash

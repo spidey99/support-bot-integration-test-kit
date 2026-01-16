@@ -1,6 +1,6 @@
 id: sqs_retry_scenario
 name: SQS message with retry handling
-fixture: ../fixtures/logs/sample_run_001.jsonl
+fixture: ../fixtures/logs/sqs_retry.jsonl
 entrypoint:
   type: sqs_event
   target:

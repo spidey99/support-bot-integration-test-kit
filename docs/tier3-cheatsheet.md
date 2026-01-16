@@ -94,7 +94,9 @@ START HERE
     │
     ├──► Run a test case ──► itk run --case X --out Y
     │
-    ├──► Run test suite ──► itk suite --suite X --out Y
+    ├──► Run test suite ──► itk suite --cases-dir X --out Y
+    │
+    ├──► Run soak test ──► itk soak --case X --out Y --iterations 50
     │
     ├──► Find logging gaps ──► itk audit --case X --out Y
     │
@@ -102,6 +104,33 @@ START HERE
     │
     └──► Scan codebase coverage ──► itk scan --repo . --out Y
 ```
+
+---
+
+## 📊 Test Status Icons
+
+| Icon | Status | Meaning |
+|------|--------|---------|
+| ✅ | Passed | All invariants passed, no errors, no retries |
+| ⚠️ | Warning | Passed but with retries or error spans |
+| ❌ | Failed | One or more invariants failed |
+| 💥 | Error | Test execution error (exception) |
+| ⏭️ | Skipped | Test was skipped |
+
+**Warning means**: Success, but not happy path. Investigate retries/errors.
+
+---
+
+## 🔄 Soak Test Metrics
+
+| Metric | Good | Bad | What to do |
+|--------|------|-----|------------|
+| Pass Rate | 100% | <95% | Check failed iterations |
+| Consistency | >90% | <50% | Too many retries |
+| Throttles | 0 | >0 | Reduce rate |
+| Avg Retries | <0.1 | >1.0 | System is flaky |
+
+**Key insight**: 100% pass + 0% consistency = All passes needed retries (hidden flakiness).
 
 ---
 
@@ -116,6 +145,8 @@ After each command, verify it worked:
 | `python scripts/safety_check.py` | Exit code 0 | "✅ All checks passed" |
 | `itk validate --case X` | Exit code 0 | "✅ Valid" |
 | `itk run --case X --out Y` | `ls Y/` | trace-viewer.html exists |
+| `itk suite --cases-dir X --out Y` | `ls Y/` | index.html exists |
+| `itk soak --case X --out Y --iterations N` | `ls Y/` | soak-report.html exists |
 | `itk audit --case X --out Y` | `cat Y/logging-gaps.md` | File exists |
 
 ---
@@ -137,6 +168,9 @@ itk run ...  # Without completing tier3-preflight-checklist.md
 
 # ❌ WRONG: Inventing request formats
 # Don't guess what payloads look like. Use derive or existing cases.
+
+# ❌ WRONG: Ignoring 0% consistency in soak results
+# Even 100% pass rate is bad if consistency is 0% (all retries)
 ```
 
 ---

@@ -40,12 +40,12 @@ When running `itk suite --cases-dir <dir> --out <dir>`, generates a modern xUnit
 │  │Total │  │Passed│  │Failed│  │Errors│  │ Rate │  │Spans │                │
 │  └──────┘  └──────┘  └──────┘  └──────┘  └──────┘  └──────┘                │
 │                                                                              │
-│  [Expand All] [Collapse All]    🔍 Search tests...    [All][✅][❌][⚠️]     │
+│  [Expand All] [Collapse All]    🔍 Search tests...    [All][✅][⚠️][❌][💥]  │
 │                                                                              │
 │  ▼ Sqs Tests                                        15/15 passed     32s    │
 │    ├─ ▶ ✅ sqs_basic_message                           1.2s                 │
-│    │      [Click to expand: mini diagram + metrics + View Full Trace]       │
-│    ├─ ▶ ✅ sqs_retry_scenario                          2.1s                 │
+│    │      [Click to expand: mini diagram + metrics + buttons]               │
+│    ├─ ▶ ⚠️ sqs_retry_scenario                          2.1s                 │
 │    └─ ▶ ❌ sqs_timeout_test                            5.0s                 │
 │                                                                              │
 │  ▶ Agent Tests                                      12/12 passed     45s    │
@@ -65,18 +65,20 @@ When you click a test row, it expands to show:
 │      │  │   Mini Sequence Diagram   │  │  Spans: 5  │  Errors: 0   │ │
 │      │  │   ┌───┐    ┌───┐   ┌───┐ │  │  Retries: 0 │  Duration: 1.2s │
 │      │  │   │SQS│───►│Agent│──►│λ │  │  ├─────────────────────────────┤ │
-│      │  │   └───┘    └───┘   └───┘ │  │  [🔍 View Full Trace]       │ │
-│      │  └──────────────────────────┘  │  [↗️ Open in Tab]            │ │
+│      │  │   └───┘    └───┘   └───┘ │  │  [🔍 Sequence] [📊 Timeline] │ │ ← Modal buttons
+│      │  └──────────────────────────┘  │  [↗️ Sequence] [↗️ Timeline] │ │ ← Tab links
 │      └─────────────────────────────────────────────────────────────────┘
 ```
 
-### Modal Trace Viewer
+### Modal Viewer
 
-Clicking "View Full Trace" opens a modal overlay with the full interactive trace-viewer.html:
+Clicking "🔍 Sequence" or "📊 Timeline" opens a modal overlay with the full viewer:
 
+- **Sequence modal**: Opens interactive trace-viewer.html with SVG sequence diagram
+- **Timeline modal**: Opens timeline.html with waterfall visualization
 - Modal preserves your scroll position in the suite report
 - Press Escape or click outside to close
-- "Open in Tab" opens in a new browser tab for deeper exploration
+- "↗️ Sequence/Timeline" links open in a new browser tab for deeper exploration
 
 ### Features
 
@@ -84,11 +86,21 @@ Clicking "View Full Trace" opens a modal overlay with the full interactive trace
 |---------|-------------|
 | **Collapsible Groups** | Click group header to expand/collapse test suites |
 | **Expandable Tests** | Click test row to see mini diagram and metrics |
-| **Modal Viewer** | Full trace viewer without leaving the report |
+| **Modal Viewers** | Sequence and Timeline modals without leaving the report |
 | **Search** | Filter tests by name or ID |
-| **Status Filters** | Show only passed/failed/error tests |
+| **Status Filters** | ✅ Passed, ⚠️ Warning, ❌ Failed, 💥 Error |
 | **Dark Mode** | Click 🌙 to toggle theme |
 | **Keyboard Nav** | Enter to toggle, Escape to close modal |
+
+### Test Status Types
+
+| Status | Icon | Description |
+|--------|------|-------------|
+| **Passed** | ✅ | All invariants passed, no errors, no retries |
+| **Warning** | ⚠️ | Passed but with retries or error spans detected |
+| **Failed** | ❌ | One or more invariants failed |
+| **Error** | 💥 | Test execution error (exception during run) |
+| **Skipped** | ⏭️ | Test was skipped |
 
 ---
 
@@ -163,11 +175,13 @@ When you run `itk run --case <path> --out <dir>`, the following artifacts are ge
 
 | Element | Meaning |
 |---------|---------|
-| **Solid arrow →** | Call (request sent) |
-| **Dashed arrow ←** | Return (response received) |
+| **Entry arrow** | `▶ operation` — Horizontal arrow FROM left INTO first lifeline (test start) |
+| **Exit arrow** | `◀ latency ✅/❌` — Horizontal arrow FROM lifeline TO left (test end) |
+| **Solid arrow →** | Call (request sent from caller to callee) |
+| **Dashed arrow ←** | Return (response received by caller) |
 | **Green ✅** | Successful span |
 | **Red ❌** | Error span |
-| **Yellow badge** | Retry attempt (attempt > 1) |
+| **🔄 retry N** | Retry badge on left side — shows retry number (1-indexed from attempt 2) |
 | **Activation box** | Duration of span on callee's lifeline |
 
 ---

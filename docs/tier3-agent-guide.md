@@ -60,12 +60,12 @@ itk run --case cases/example-001.yaml --out artifacts/run-001/
 ```bash
 # Verify files were created
 ls artifacts/run-001/
-# Expected: trace.html, spans.jsonl, report.md, sequence.mmd, payloads/
+# Expected: trace-viewer.html, timeline.html, spans.jsonl, report.md, sequence.mmd, payloads/
 
 # Open trace viewer in browser
-start artifacts/run-001/trace.html  # Windows
-open artifacts/run-001/trace.html   # Mac
-xdg-open artifacts/run-001/trace.html  # Linux
+start artifacts/run-001/trace-viewer.html  # Windows
+open artifacts/run-001/trace-viewer.html   # Mac
+xdg-open artifacts/run-001/trace-viewer.html  # Linux
 ```
 
 ---
@@ -81,9 +81,10 @@ itk run --case cases/<case-name>.yaml --out artifacts/<run-id>/
 ```
 
 **Outputs**:
-- `trace.html` — Interactive sequence diagram
+- `trace-viewer.html` — Interactive SVG sequence diagram
+- `timeline.html` — Waterfall timeline view
 - `spans.jsonl` — Raw span data
-- `report.md` — Summary
+- `report.md` — Summary with invariant results
 - `payloads/*.json` — Request/response payloads
 
 ### Task B: Run a Test Suite
@@ -91,12 +92,12 @@ itk run --case cases/<case-name>.yaml --out artifacts/<run-id>/
 **When**: You want to run multiple cases together.
 
 ```bash
-itk suite --suite suites/smoke.yaml --out artifacts/smoke-001/
+itk suite --cases-dir cases/ --out artifacts/smoke-001/
 ```
 
 **Outputs**:
-- `index.html` — Suite report with all runs
-- `runs/<case-id>/` — Per-case artifacts
+- `index.html` — Suite report with all runs (✅ Passed, ⚠️ Warning, ❌ Failed, 💥 Error)
+- `<case-id>/` — Per-case artifacts (trace-viewer.html, timeline.html, etc.)
 
 ### Task C: Audit Logging Gaps
 
@@ -135,6 +136,34 @@ itk scan --repo . --out artifacts/scan/
 **Outputs**:
 - `coverage_report.md` — What's missing
 - `skeleton_cases/*.yaml` — Generated stubs (with `--generate-skeletons`)
+
+### Task F: Run Soak Test
+
+**When**: You want to stress-test a case repeatedly to find flaky behavior.
+
+```bash
+# Run 50 iterations with per-iteration drill-down
+itk soak --case cases/<case-name>.yaml --out artifacts/soak-001/ --iterations 50 --detailed
+```
+
+**Outputs**:
+- `soak-report.html` — Dashboard with consistency metrics
+- `soak-result.json` — Programmatic access to results
+- `iterations/NNNN/<case-name>/` — Per-iteration artifacts (with `--detailed`)
+
+**Key Metrics to Check**:
+
+| Metric | Good | Bad | Action |
+|--------|------|-----|--------|
+| Pass Rate | 100% | <95% | Investigate failed iterations |
+| Consistency Score | >90% | <50% | Too many retries — LLM non-determinism |
+| Throttle Events | 0 | >0 | Reduce rate, increase interval |
+| Avg Retries | 0-0.1 | >1.0 | System is flaky, check error spans |
+
+**Interpreting Results**:
+- **100% pass + 0% consistency** = All passes needed retries (hidden flakiness)
+- **High warning rate** = System works but not happy path
+- Click any iteration row to drill-down into that run's trace-viewer
 
 ---
 

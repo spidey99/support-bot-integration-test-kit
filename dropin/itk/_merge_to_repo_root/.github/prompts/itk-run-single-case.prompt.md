@@ -11,7 +11,7 @@ Use this prompt to run a single integration test case against deployed QA resour
 
 **Offline mode** (for testing without AWS):
 ```bash
-itk run --offline --case cases/example-001.yaml --out artifacts/run-001
+itk run --mode dev-fixtures --case cases/example-001.yaml --out artifacts/run-001
 ```
 
 **Online mode** (requires AWS credentials):
@@ -21,7 +21,7 @@ itk run --case cases/my-case.yaml --out artifacts/run-001
 
 ## What Happens
 
-### Offline Mode (`--offline`)
+### Offline Mode (`--mode dev-fixtures`)
 1. Loads the case YAML
 2. Finds the fixture file (from `fixture:` field or sibling `.jsonl`)
 3. Parses fixture logs into spans
@@ -47,9 +47,11 @@ After running, check the output directory:
 
 | File | Description |
 |------|-------------|
-| `sequence.mmd` | Mermaid sequence diagram |
+| `trace-viewer.html` | **Primary** - Interactive SVG sequence diagram |
+| `timeline.html` | Waterfall timeline visualization |
+| `sequence.mmd` | Mermaid sequence diagram (GitHub-compatible) |
 | `spans.jsonl` | All spans in JSONL format |
-| `report.md` | Human-readable summary |
+| `report.md` | Human-readable summary with invariant results |
 | `payloads/*.json` | Request/response payloads per span |
 
 ## Troubleshooting
@@ -58,7 +60,7 @@ After running, check the output directory:
 
 **"target_arn_or_url has placeholder value"** - Replace `REPLACE_ME` with actual Lambda ARN or SQS URL.
 
-**Missing spans** - Run `itk audit --case ... --offline --out ...` to identify logging gaps.
+**Missing spans** - Run `itk audit --case ... --mode dev-fixtures --out ...` to identify logging gaps.
 
 ## Golden Path: SQS
 

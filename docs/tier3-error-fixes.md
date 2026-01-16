@@ -288,10 +288,67 @@ ThrottlingException: Rate exceeded
 sleep 30
 
 # For soak tests, reduce rate
-# Edit .env:
-ITK_SOAK_INTERVAL=5000  # 5 seconds between iterations
-ITK_SOAK_MAX_INFLIGHT=1  # One at a time
+itk soak --case X --out Y --iterations 50 --initial-rate 0.5
 ```
+
+---
+
+## Soak Test Issues
+
+### Issue: Consistency Score is 0%
+
+**Symptom:** Pass rate is 100% but consistency is 0%
+
+**Meaning:** Every test passed, but ALL required retries. This is hidden flakiness.
+
+**Fix:**
+1. Drill-down into specific iterations (click row in soak-report.html)
+2. Check error spans in trace-viewer.html
+3. Look for patterns: timeout, LLM errors, rate limits
+4. May need to investigate the LLM prompt or system under test
+
+---
+
+### Issue: High retry count (avg > 1.0)
+
+**Symptom:** `Avg Retries: 2.5/iter` or similar
+
+**Meaning:** System is flaky and needs multiple attempts to succeed.
+
+**Fix:**
+1. Check which operations are retrying (trace-viewer)
+2. Look for `attempt: 2`, `attempt: 3` in span data
+3. Common causes: LLM timeouts, external API flakiness, rate limits
+4. May need to increase timeouts or improve error handling
+
+---
+
+### Issue: Throttle events detected
+
+**Symptom:** `Throttle events: 5` in soak report
+
+**Fix:**
+```bash
+# Re-run with slower rate
+itk soak --case X --out Y --iterations 50 --initial-rate 0.2
+
+# Or add delay between iterations (if supported)
+ITK_SOAK_INTERVAL=5000  # 5 seconds between iterations
+```
+
+---
+
+### Issue: Soak report shows all warnings
+
+**Symptom:** All 50 iterations show ⚠️ warning status
+
+**Meaning:** Every test had either retries or error spans (even if passed)
+
+**Fix:**
+1. This is revealing non-determinism — document it
+2. Drill-down to investigate specific iterations
+3. Check if error spans are expected (handled errors) or unexpected
+4. May need to adjust retry detection or error handling
 
 ---
 

@@ -1,6 +1,6 @@
 id: agent_model_invocation
 name: Agent with model invocation tracing
-fixture: ../fixtures/logs/sample_run_001.jsonl
+fixture: ../fixtures/logs/agent_model_trace.jsonl
 entrypoint:
   type: bedrock_invoke_agent
   target:

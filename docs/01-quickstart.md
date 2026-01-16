@@ -60,13 +60,31 @@ After running a case, check the output directory:
 
 | File | Description |
 |------|-------------|
-| `sequence.mmd` | Mermaid sequence diagram |
-| `trace-viewer.html` | Interactive HTML diagram viewer |
-| `timeline.html` | Timeline visualization with critical path |
+| `trace-viewer.html` | **Primary** - Interactive SVG sequence diagram with pan/zoom |
+| `timeline.html` | Waterfall timeline visualization with critical path |
+| `sequence.mmd` | Mermaid sequence diagram (GitHub-compatible) |
+| `sequence.html` | Legacy Mermaid-rendered HTML diagram |
+| `thumbnail.svg` | Mini sequence preview for suite report |
+| `timeline-thumbnail.svg` | Mini timeline preview |
 | `spans.jsonl` | All spans in JSONL format |
 | `report.md` | Human-readable summary with invariant results |
 | `payloads/*.json` | Request/response payloads per span |
 | `logging-gaps.md` | (audit only) Missing log fields report |
+
+## Suite Report
+
+Run multiple cases and generate a hierarchical report:
+
+```bash
+itk suite --cases-dir cases/ --out artifacts/suite-run/
+```
+
+Open `artifacts/suite-run/index.html` to see:
+- Summary cards (total, passed, warning, failed, error)
+- Collapsible test groups
+- Expandable test rows with mini diagrams
+- Modal viewers for Sequence and Timeline
+- Status filters: ✅ Passed, ⚠️ Warning, ❌ Failed, 💥 Error
 
 ## Format Options
 

@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Optional, Sequence
 
-from itk.assertions.invariants import run_invariants
+from itk.assertions.invariants import run_all_invariants
 from itk.cases.loader import load_case, CaseConfig
 from itk.config import Config, get_config
 from itk.diagrams.mermaid_seq import render_mermaid_sequence
@@ -90,13 +90,14 @@ def resolve_fixture_for_case(case_path: Path) -> Optional[Path]:
 
 def run_case_dev_fixtures(
     case_path: Path,
-    out_dir: Path,
+    out_dir: Optional[Path] = None,
 ) -> CaseResult:
     """Run a single case in dev-fixtures mode.
 
     Args:
         case_path: Path to case YAML file.
-        out_dir: Output directory for artifacts.
+        out_dir: Output directory for artifacts. If None, skip artifact writing.
+            Used for soak testing where we don't want artifacts per iteration.
 
     Returns:
         CaseResult with execution details.
@@ -136,20 +137,22 @@ def run_case_dev_fixtures(
         trace = build_trace_from_spans(spans)
 
         # Run invariants
-        invariant_results = run_invariants(trace)
+        invariant_results = run_all_invariants(trace)
 
-        # Render artifacts
+        # Render artifacts and write if out_dir provided
         mermaid = render_mermaid_sequence(trace)
+        case_out_dir: Optional[Path] = None
 
-        # Create case-specific output dir
-        case_out_dir = out_dir / case.id
-        write_run_artifacts(
-            out_dir=case_out_dir,
-            trace=trace,
-            mermaid=mermaid,
-            case=case,
-            invariant_results=invariant_results,
-        )
+        if out_dir is not None:
+            # Create case-specific output dir
+            case_out_dir = out_dir / case.id
+            write_run_artifacts(
+                out_dir=case_out_dir,
+                trace=trace,
+                mermaid=mermaid,
+                case=case,
+                invariant_results=invariant_results,
+            )
 
         # Generate mini SVG for report thumbnail
         mini_svg = render_mini_svg(trace)
@@ -163,6 +166,8 @@ def run_case_dev_fixtures(
         failed_invariants = [r.name for r in invariant_results if not r.passed]
         if failed_invariants:
             status = CaseStatus.FAILED
+        elif retry_count > 0 or error_count > 0:
+            status = CaseStatus.PASSED_WITH_WARNINGS
         else:
             status = CaseStatus.PASSED
 
@@ -181,11 +186,12 @@ def run_case_dev_fixtures(
             started_at=started_at,
             finished_at=datetime.now(timezone.utc).isoformat(),
             invariant_failures=failed_invariants,
-            artifacts_dir=str(case_out_dir),
-            trace_viewer_path=f"{case.id}/trace-viewer.html",
-            timeline_path=f"{case.id}/timeline.html",
+            artifacts_dir=str(case_out_dir) if case_out_dir else None,
+            trace_viewer_path=f"{case.id}/trace-viewer.html" if case_out_dir else None,
+            timeline_path=f"{case.id}/timeline.html" if case_out_dir else None,
             thumbnail_svg=mini_svg,
             timeline_svg=mini_timeline,
+            spans=trace.spans,  # Include spans for soak testing
         )
 
     except Exception as e:

@@ -255,7 +255,7 @@
           "action": "check-artifacts",
           "instruction": "Verify all expected files were created",
           "file_path": "artifacts/run-001/",
-          "success_criteria": "trace.html, spans.jsonl, report.md exist"
+          "success_criteria": "trace-viewer.html, timeline.html, spans.jsonl, report.md exist"
         },
         {
           "action": "report-result",
@@ -267,7 +267,7 @@
       },
       "outputs": {
         "artifacts_dir": "artifacts/run-001/",
-        "expected_files": ["trace.html", "spans.jsonl", "report.md", "sequence.mmd"],
+        "expected_files": ["trace-viewer.html", "timeline.html", "spans.jsonl", "report.md", "sequence.mmd"],
         "report_format": "markdown"
       },
       "constraints": {

@@ -155,7 +155,7 @@
 
 **Symptoms:**
 - AWS keys visible in `spans.jsonl`
-- Secrets in `report.md` or `trace.html`
+- Secrets in `report.md` or `trace-viewer.html`
 - API keys in payloads
 
 ### 🚨 IMMEDIATE ACTIONS

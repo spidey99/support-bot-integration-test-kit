@@ -651,6 +651,8 @@ def _cmd_soak(args: argparse.Namespace) -> int:
     duration = getattr(args, "duration", None)
     iterations = getattr(args, "iterations", None)
     initial_rate = getattr(args, "initial_rate", 1.0)
+    summary_only = getattr(args, "summary_only", False)
+    detailed = not summary_only  # --summary-only disables detailed mode
 
     # Load config with mode from CLI or .env
     mode_arg = getattr(args, "mode", None)
@@ -690,30 +692,43 @@ def _cmd_soak(args: argparse.Namespace) -> int:
     print(f"Soak test: {case_path.stem}")
     print(f"Mode: {soak_mode.value} ({duration}s)" if duration else f"Mode: {soak_mode.value} ({iterations} iterations)")
     print(f"Initial rate: {initial_rate} req/s")
+    print(f"Detailed: {'yes (per-iteration artifacts)' if detailed else 'no (summary only)'}")
     print()
 
-    # Progress callback
+    # Progress callback with status icons (ASCII-safe for Windows)
     def on_iteration(iteration):
-        status = "✅" if iteration.passed else "❌"
-        throttle = "⚠️" if iteration.throttle_events else ""
-        print(f"  {status}{throttle} Iteration {iteration.iteration}: {iteration.duration_ms:.0f}ms")
+        status_icons = {
+            "passed": "[PASS]",
+            "warning": "[WARN]",
+            "failed": "[FAIL]",
+            "error": "[ERR!]",
+        }
+        icon = status_icons.get(iteration.status, "[????]")
+        throttle = " [THROTTLE]" if iteration.throttle_events else ""
+        retry_info = f" (retries: {iteration.retry_count})" if iteration.retry_count > 0 else ""
+        print(f"  {icon} Iteration {iteration.iteration}: {iteration.duration_ms:.0f}ms{retry_info}{throttle}")
 
     # Run soak
     result = run_soak_with_case(
         case_path=case_path,
         config=soak_config,
+        out_dir=out_dir,
         mode=config.mode.value,
+        detailed=detailed,
         on_iteration=on_iteration,
     )
 
     # Write report
     report_path = write_soak_report(result, out_dir)
 
-    # Summary
+    # Summary with consistency metrics
     print()
     print(f"Soak complete: {result.soak_id}")
     print(f"Iterations: {result.total_iterations}")
     print(f"Pass rate: {result.pass_rate * 100:.1f}%")
+    print(f"Consistency: {result.consistency_score * 100:.1f}% (clean passes / total passes)")
+    print(f"  Clean: {result.total_clean_passes} | Warnings: {result.total_warnings} | Failed: {result.total_failures}")
+    print(f"Retries: {result.total_retries} total (avg {result.avg_retries_per_iteration:.1f}/iter, max {result.max_retries})")
     print(f"Throttle events: {len(result.all_throttle_events)}")
     print(f"Final rate: {result.final_rate:.2f} req/s")
     print(f"Report: {report_path}")
@@ -1041,6 +1056,18 @@ def main() -> None:
         default=1.0,
         dest="initial_rate",
         help="Initial rate in requests/second (default: 1.0)",
+    )
+    p_soak.add_argument(
+        "--detailed",
+        action="store_true",
+        default=True,
+        help="Save per-iteration artifacts for drill-down (default: true)",
+    )
+    p_soak.add_argument(
+        "--summary-only",
+        action="store_true",
+        dest="summary_only",
+        help="Skip per-iteration artifacts (summary report only)",
     )
     p_soak.add_argument(
         "--mode",

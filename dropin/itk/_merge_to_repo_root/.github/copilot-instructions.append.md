@@ -20,10 +20,18 @@ You are working inside the work repo with AWS access.
 
 ## Definition of done
 `itk run --case <id> --out artifacts/<run-id>` produces:
+- `trace-viewer.html` - Interactive SVG sequence diagram
+- `timeline.html` - Waterfall timeline view
 - `sequence.mmd` - Mermaid sequence diagram
 - `spans.jsonl` - Normalized span data
 - `payloads/*.json` - Request/response payloads
 - `report.md` - Human-readable summary
+
+## Test Status Reference
+- ✅ **Passed** - All invariants passed, no errors, no retries
+- ⚠️ **Warning** - Passed but with retries or error spans
+- ❌ **Failed** - One or more invariants failed
+- 💥 **Error** - Test execution error (exception)
 
 ## Commands
 
@@ -34,12 +42,12 @@ itk run --case cases/example-001.yaml --out artifacts/run-001
 
 ### Run a case (offline with fixtures)
 ```bash
-itk run --offline --case cases/example-001.yaml --out artifacts/run-001
+itk run --mode dev-fixtures --case cases/example-001.yaml --out artifacts/run-001
 ```
 
 ### Audit logging gaps
 ```bash
-itk audit --offline --case cases/example-001.yaml --out artifacts/audit-001
+itk audit --mode dev-fixtures --case cases/example-001.yaml --out artifacts/audit-001
 ```
 
 ### Render fixture directly
@@ -48,7 +56,7 @@ itk render-fixture --fixture fixtures/logs/sample.jsonl --out artifacts/render-0
 ```
 
 ## Tips
-- Use `itk audit --offline` to identify missing log fields before running online
+- Use `itk audit --mode dev-fixtures` to identify missing log fields before running online
 - Check `logging-gaps.md` for recommended log format changes
 - Correlation IDs to look for: `lambda_request_id`, `bedrock_session_id`, `itk_trace_id`, `xray_trace_id`
 

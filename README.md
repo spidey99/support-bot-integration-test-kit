@@ -1,66 +1,147 @@
-# Support Bot Integration Test Kit (Wrapper Repo)
+# Support Bot Integration Test Kit (ITK)
 
-This public repo is a **safe, generic wrapper** you can work on at home.
+[![Tests](https://img.shields.io/badge/tests-461%20passed-brightgreen)]()
+[![Python](https://img.shields.io/badge/python-3.10+-blue)]()
 
-It contains a **drop-in kit** you will later copy into a private/work codebase that has:
-- AWS access
-- deployed QA resources
-- real CloudWatch logs
-- Bedrock Agent Runtime + direct model invocations
+**ITK** is a drop-in integration testing toolkit for AWS-based support bot systems using Bedrock Agents, Lambda, and SQS.
 
-## Three-tier workflow (important)
+It produces **static HTML artifacts** (sequence diagrams, timelines, reports) viewable via `file://` - no server required.
 
-### Tier 1 (this chat)
-Defines architecture, artifacts, schemas, and the drop-in structure.
+---
 
-### Tier 2 (home machine / Claude Opus 4.5)
-Implements as much as possible **offline**:
-- schemas
-- CLI
-- log parsing
-- correlation/stitching logic
-- sequence diagram rendering
-- fixture-driven tests
+## Quick Start for Developers
 
-Tier 2 has **no access** to work code or AWS.
+**Want to add ITK to your work repo?** See [QUICKSTART_TIER3.md](docs/QUICKSTART_TIER3.md) for the 5-minute setup.
 
-### Tier 3 (work environment / free-tier model)
-Uses the **drop-in kit** inside the work repo to:
-- pull CloudWatch logs with work creds
-- call deployed Lambdas/Agents
-- generate artifacts (diagrams + payloads + reports)
+---
 
-## What’s inside
+## What ITK Does
 
-- `/planning/*` — planning artifacts for **Tier 2** work (wrapper repo)
-- `/docs/*` — design docs, “explain like I’m 5” level
-- `/.github/*` — Copilot instructions + prompt files for Tier 2
-- `/dropin/itk/*` — the **drop-in kit** to copy into the work repo
-  - `/dropin/itk/planning/*` — separate planning artifacts for **Tier 3**
-  - `/dropin/itk/_merge_to_repo_root/.github/*` — Copilot guidance to merge into work repo root
+| Feature | Description |
+|---------|-------------|
+| **Trace Viewer** | Interactive SVG sequence diagrams with zoom, search, filters |
+| **Timeline View** | Waterfall visualization showing span durations |
+| **Suite Reports** | Hierarchical test reports with pass/warning/fail status |
+| **Soak Testing** | Stress testing with consistency metrics and drill-down |
+| **Log Gap Audit** | Identifies missing boundary logs in your codebase |
+| **Case Derivation** | Generate test cases from CloudWatch logs |
 
-## Quickstart (Tier 2 / offline)
+## Architecture: Three Tiers
 
-1) Open this repo in VS Code.
-2) Create a virtualenv.
-3) Install the drop-in kit in editable mode:
+```
++---------------------------------------------------------------------+
+|  TIER 1: Architecture (this README)                                 |
+|  Defines schemas, artifacts, and the drop-in structure              |
++---------------------------------------------------------------------+
+|  TIER 2: Offline Development (this repo)                            |
+|  Implements CLI, rendering, correlation - tested with fixtures      |
+|  NO AWS access                                                       |
++---------------------------------------------------------------------+
+|  TIER 3: Live Execution (your work repo)                            |
+|  Runs real integration tests against AWS QA resources               |
+|  Uses the drop-in kit from dropin/itk/                              |
++---------------------------------------------------------------------+
+```
+
+## Repository Structure
+
+```
+support-bot-integration-test-kit/
+|-- docs/                         # Documentation
+|   |-- QUICKSTART_TIER3.md       # Developer quick start
+|   |-- tier3-*.md                # Tier 3 agent guidance
+|   +-- prompts/                  # Copilot prompts for common tasks
+|-- dropin/itk/                   # The drop-in kit
+|   |-- src/itk/                  # CLI and core modules
+|   |-- cases/                    # Example test cases
+|   |-- fixtures/                 # Sample fixture data
+|   |-- planning/                 # Tier 3 TODO and roadmap
+|   +-- _merge_to_repo_root/      # Copilot instructions to merge
++-- planning/                     # Tier 2 development planning
+```
+
+## Quickstart: Tier 2 (Offline Development)
+
+If you're developing ITK itself (not using it in a work repo):
 
 ```bash
-cd dropin/itk
+# Clone and setup
+git clone https://github.com/spidey99/support-bot-integration-test-kit.git
+cd support-bot-integration-test-kit/dropin/itk
 python -m venv .venv
-source .venv/bin/activate
-pip install -e .
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+pip install -e ".[dev]"
+
+# Run with fixtures (no AWS)
+itk run --mode dev-fixtures --case cases/example-001.yaml --out artifacts/demo/
+
+# Open the trace viewer
+open artifacts/demo/trace-viewer.html
 ```
 
-4) Run the CLI in offline fixture mode:
+## Quickstart: Tier 3 (Work Repo Integration)
 
+**Full instructions**: [docs/QUICKSTART_TIER3.md](docs/QUICKSTART_TIER3.md)
+
+**TL;DR**:
 ```bash
-itk render-fixture --fixture fixtures/logs/sample_run_001.jsonl --out artifacts/sample_run_001
+# 1. Copy ITK to your work repo
+cp -r dropin/itk /path/to/work-repo/tools/itk
+
+# 2. Install
+cd /path/to/work-repo/tools/itk && pip install -e ".[dev]"
+
+# 3. Configure
+cp .env.example .env && vim .env  # Fill in AWS values
+
+# 4. Run
+itk run --case cases/example-001.yaml --out artifacts/run-001/
 ```
 
-This produces a Mermaid sequence diagram and payload artifacts without needing AWS.
+## CLI Commands
 
-## Next step
+| Command | Description |
+|---------|-------------|
+| `itk run` | Run a single test case |
+| `itk suite` | Run multiple cases, generate suite report |
+| `itk soak` | Stress test with consistency metrics |
+| `itk audit` | Find logging gaps in your traces |
+| `itk derive` | Generate cases from CloudWatch logs |
+| `itk scan` | Analyze codebase for test coverage |
+| `itk validate` | Validate case/fixture YAML files |
+| `itk compare` | Compare two test runs |
+| `itk serve` | Local preview server with auto-refresh |
 
-Use the planning artifacts in `/planning` to drive Tier 2 implementation work.
-Then copy `dropin/itk/` into your work repo and follow `dropin/itk/README_WORK_REPO.md`.
+## Output Artifacts
+
+Every test run produces:
+
+| File | Description |
+|------|-------------|
+| `trace-viewer.html` | Interactive SVG sequence diagram |
+| `timeline.html` | Waterfall timeline visualization |
+| `sequence.mmd` | Mermaid source (GitHub-compatible) |
+| `spans.jsonl` | Raw span data in JSONL format |
+| `report.md` | Summary with invariant results |
+| `payloads/*.json` | Request/response payloads |
+
+## Test Status Icons
+
+| Icon | Status | Meaning |
+|------|--------|---------|
+| Pass | Passed | All invariants passed, no errors, no retries |
+| Warn | Warning | Passed but with retries or error spans |
+| Fail | Failed | One or more invariants failed |
+| Error | Error | Test execution error |
+| Skip | Skipped | Test was skipped |
+
+## Documentation
+
+- [QUICKSTART_TIER3.md](docs/QUICKSTART_TIER3.md) - Developer quick start
+- [tier3-cheatsheet.md](docs/tier3-cheatsheet.md) - One-page reference
+- [tier3-agent-guide.md](docs/tier3-agent-guide.md) - Full Tier 3 guide
+- [tier3-error-fixes.md](docs/tier3-error-fixes.md) - Error to solution lookup
+
+## License
+
+MIT

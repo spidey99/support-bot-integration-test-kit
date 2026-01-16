@@ -356,6 +356,138 @@ class TestSuiteReportModal:
         assert len(js_errors) == 0, f"JS errors: {js_errors}"
 
 
+class TestSuiteReportLinks:
+    """UI tests for action button links."""
+
+    def test_timeline_link_exists(
+        self,
+        page: Page,
+        suite_artifacts: Path,
+        js_errors: list[str],
+    ) -> None:
+        """Verify Timeline link is present and has correct href."""
+        page.on("pageerror", lambda exc: js_errors.append(str(exc)))
+
+        html_path = suite_artifacts / "index.html"
+        page.goto(f"file://{html_path}")
+        page.wait_for_load_state("networkidle")
+
+        # Expand a test row
+        row = page.locator(".test-row").first
+        row.locator(".test-header").click()
+        page.wait_for_timeout(100)
+
+        # Find Timeline button (tab link)
+        timeline_btn = row.locator("a:has-text('Timeline Tab')")
+        
+        if timeline_btn.count() > 0:
+            expect(timeline_btn).to_be_visible()
+            href = timeline_btn.get_attribute("href")
+            assert href is not None
+            assert "timeline.html" in href
+
+        assert len(js_errors) == 0, f"JS errors: {js_errors}"
+
+    def test_sequence_link_exists(
+        self,
+        page: Page,
+        suite_artifacts: Path,
+        js_errors: list[str],
+    ) -> None:
+        """Verify Sequence link is present and has correct href."""
+        page.on("pageerror", lambda exc: js_errors.append(str(exc)))
+
+        html_path = suite_artifacts / "index.html"
+        page.goto(f"file://{html_path}")
+        page.wait_for_load_state("networkidle")
+
+        # Expand a test row
+        row = page.locator(".test-row").first
+        row.locator(".test-header").click()
+        page.wait_for_timeout(100)
+
+        # Find Sequence link (tab link)
+        seq_link = row.locator("a:has-text('Sequence Tab')")
+        
+        if seq_link.count() > 0:
+            expect(seq_link).to_be_visible()
+            href = seq_link.get_attribute("href")
+            assert href is not None
+            assert "trace-viewer.html" in href
+
+        assert len(js_errors) == 0, f"JS errors: {js_errors}"
+
+    def test_timeline_modal_button(
+        self,
+        page: Page,
+        suite_artifacts: Path,
+        js_errors: list[str],
+    ) -> None:
+        """Verify Timeline modal button works."""
+        page.on("pageerror", lambda exc: js_errors.append(str(exc)))
+
+        html_path = suite_artifacts / "index.html"
+        page.goto(f"file://{html_path}")
+        page.wait_for_load_state("networkidle")
+
+        # Expand a test row
+        row = page.locator(".test-row").first
+        row.locator(".test-header").click()
+        page.wait_for_timeout(100)
+
+        # Find Timeline modal button
+        timeline_btn = row.locator("button.open-timeline-modal-btn")
+        expect(timeline_btn).to_be_visible()
+        
+        # Click to open modal
+        timeline_btn.click()
+        page.wait_for_timeout(300)
+        
+        # Modal should be open
+        modal = page.locator("#trace-modal")
+        expect(modal).to_have_class("modal open")
+        
+        # Title should say "Timeline View"
+        modal_title = modal.locator(".modal-title")
+        expect(modal_title).to_have_text("Timeline View")
+
+        assert len(js_errors) == 0, f"JS errors: {js_errors}"
+
+    def test_buttons_side_by_side(
+        self,
+        page: Page,
+        suite_artifacts: Path,
+        js_errors: list[str],
+    ) -> None:
+        """Verify Timeline and Sequence buttons are side by side."""
+        page.on("pageerror", lambda exc: js_errors.append(str(exc)))
+
+        html_path = suite_artifacts / "index.html"
+        page.goto(f"file://{html_path}")
+        page.wait_for_load_state("networkidle")
+
+        # Expand a test row
+        row = page.locator(".test-row").first
+        row.locator(".test-header").click()
+        page.wait_for_timeout(100)
+
+        # Find the button rows (now there are 2: modal buttons and tab links)
+        btn_rows = row.locator(".btn-row")
+        expect(btn_rows.first).to_be_visible()
+        
+        # First row has modal buttons (Sequence and Timeline)
+        modal_row = btn_rows.first
+        assert modal_row.locator("button:has-text('Sequence')").count() == 1
+        assert modal_row.locator("button:has-text('Timeline')").count() == 1
+        
+        # Second row has tab links
+        tab_row = btn_rows.nth(1)
+        assert tab_row.locator("a:has-text('Sequence Tab')").count() == 1
+        assert tab_row.locator("a:has-text('Timeline Tab')").count() == 1
+
+        assert len(js_errors) == 0, f"JS errors: {js_errors}"
+
+
 class TestSuiteReportFilters:
     """UI tests for filter functionality."""
 

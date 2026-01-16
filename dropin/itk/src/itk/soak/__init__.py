@@ -100,6 +100,9 @@ class SoakIteration:
         span_count: Number of spans in the trace.
         error_count: Number of error spans.
         throttle_events: List of throttle events in this iteration.
+        retry_count: Number of retry attempts in this iteration.
+        status: Status string ('passed', 'warning', 'failed', 'error').
+        artifacts_dir: Path to iteration artifacts (if detailed mode).
     """
 
     iteration: int
@@ -109,6 +112,19 @@ class SoakIteration:
     error_count: int = 0
     throttle_events: list[ThrottleEvent] = field(default_factory=list)
     timestamp: Optional[str] = None
+    retry_count: int = 0
+    status: str = "passed"  # passed, warning, failed, error
+    artifacts_dir: Optional[str] = None
+
+    @property
+    def is_clean_pass(self) -> bool:
+        """Whether this iteration passed without any retries or errors."""
+        return self.passed and self.retry_count == 0 and self.error_count == 0
+
+    @property
+    def is_warning(self) -> bool:
+        """Whether this iteration passed but with retries or errors."""
+        return self.status == "warning"
 
     @property
     def throttle_detected(self) -> bool:
@@ -121,11 +137,15 @@ class SoakIteration:
             "iteration": self.iteration,
             "timestamp": self.timestamp,
             "passed": self.passed,
+            "status": self.status,
             "duration_ms": self.duration_ms,
             "span_count": self.span_count,
             "error_count": self.error_count,
+            "retry_count": self.retry_count,
+            "is_clean_pass": self.is_clean_pass,
             "throttle_detected": self.throttle_detected,
             "throttle_events": [e.to_dict() for e in self.throttle_events],
+            "artifacts_dir": self.artifacts_dir,
         }
 
 
@@ -162,8 +182,60 @@ class SoakResult:
 
     @property
     def total_passed(self) -> int:
-        """Number of iterations that passed."""
+        """Number of iterations that passed (including warnings)."""
         return sum(1 for i in self.iterations if i.passed)
+
+    @property
+    def total_clean_passes(self) -> int:
+        """Number of iterations that passed without retries/errors."""
+        return sum(1 for i in self.iterations if i.is_clean_pass)
+
+    @property
+    def total_warnings(self) -> int:
+        """Number of iterations that passed but with retries/errors."""
+        return sum(1 for i in self.iterations if i.is_warning)
+
+    @property
+    def total_failures(self) -> int:
+        """Number of iterations that failed."""
+        return sum(1 for i in self.iterations if not i.passed)
+
+    @property
+    def consistency_score(self) -> float:
+        """Clean passes divided by total passes (0.0 to 1.0).
+
+        If 97% pass but all had retries, consistency = 0%.
+        This reveals LLM non-determinism masked by retries.
+        """
+        if self.total_passed == 0:
+            return 0.0
+        return self.total_clean_passes / self.total_passed
+
+    @property
+    def warning_rate(self) -> float:
+        """Percentage of passing iterations that had warnings."""
+        if self.total_passed == 0:
+            return 0.0
+        return self.total_warnings / self.total_passed
+
+    @property
+    def total_retries(self) -> int:
+        """Total retry count across all iterations."""
+        return sum(i.retry_count for i in self.iterations)
+
+    @property
+    def avg_retries_per_iteration(self) -> float:
+        """Average retries per iteration."""
+        if not self.iterations:
+            return 0.0
+        return self.total_retries / len(self.iterations)
+
+    @property
+    def max_retries(self) -> int:
+        """Maximum retry count in any single iteration."""
+        if not self.iterations:
+            return 0
+        return max(i.retry_count for i in self.iterations)
 
     @property
     def pass_rate(self) -> float:
@@ -207,8 +279,16 @@ class SoakResult:
             "summary": {
                 "total_iterations": self.total_iterations,
                 "total_passed": self.total_passed,
+                "total_clean_passes": self.total_clean_passes,
+                "total_warnings": self.total_warnings,
+                "total_failures": self.total_failures,
                 "pass_rate": self.pass_rate,
+                "consistency_score": self.consistency_score,
+                "warning_rate": self.warning_rate,
                 "avg_iteration_ms": self.avg_iteration_ms,
+                "total_retries": self.total_retries,
+                "avg_retries_per_iteration": self.avg_retries_per_iteration,
+                "max_retries": self.max_retries,
                 "total_throttle_events": len(self.all_throttle_events),
                 "throttle_rate": self.throttle_rate,
                 "final_rate": self.final_rate,

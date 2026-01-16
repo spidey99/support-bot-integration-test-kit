@@ -40,14 +40,17 @@ itk run --case cases/example.yaml --out artifacts/run-001/
 # Run a test case (OFFLINE - fixtures only)
 itk run --mode dev-fixtures --case cases/example.yaml --out artifacts/run-001/
 
+# Run test suite
+itk suite --cases-dir cases/ --out artifacts/smoke/
+
+# Run soak test (50 iterations with drill-down)
+itk soak --case cases/example.yaml --out artifacts/soak-001/ --iterations 50 --detailed
+
 # Audit logging gaps
 itk audit --case cases/example.yaml --out artifacts/audit/
 
 # Derive cases from CloudWatch logs
 itk derive --since 24h --out cases/derived/
-
-# Run test suite
-itk suite --suite suites/smoke.yaml --out artifacts/smoke/
 
 # Validate case file
 itk validate --case cases/example.yaml
@@ -65,11 +68,27 @@ itk validate --case cases/example.yaml
 ## ✅ Definition of Done
 
 Every `itk run` must produce in the output directory:
-- `trace-viewer.html` — Interactive diagram
+- `trace-viewer.html` — Interactive SVG sequence diagram
+- `timeline.html` — Waterfall timeline view
 - `sequence.mmd` — Mermaid source
 - `spans.jsonl` — Raw span data
 - `report.md` — Summary with invariant results
 - `payloads/*.json` — Request/response payloads
+
+Every `itk soak` must produce:
+- `soak-report.html` — Dashboard with consistency metrics
+- `soak-result.json` — Programmatic access to results
+- `iterations/NNNN/<case>/` — Per-iteration artifacts (with `--detailed`)
+
+## 🔄 Soak Test Interpretation
+
+| Metric | Good | Bad | Action |
+|--------|------|-----|--------|
+| Pass Rate | 100% | <95% | Investigate failed iterations |
+| Consistency | >90% | <50% | Too many retries (LLM non-determinism) |
+| Throttles | 0 | >0 | Reduce rate: `--initial-rate 0.5` |
+
+**Key insight**: 100% pass + 0% consistency = All passes needed retries (hidden flakiness)
 
 ## 🛠️ When Things Break
 
@@ -77,6 +96,8 @@ Every `itk run` must produce in the output directory:
 2. **Empty diagram?** → Run `itk audit`, check logging-gaps.md
 3. **AWS error?** → Run `python dropin/itk/scripts/safety_check.py --verbose`
 4. **Test failed?** → Use prompt: `.github/prompts/itk-triage-failed-run.prompt.md`
+5. **Soak issues?** → Use prompt: `.github/prompts/itk-run-soak-test.prompt.md`
+6. **0% consistency?** → All passes had retries, drill-down to investigate
 
 ## ⛔ Never Do This
 

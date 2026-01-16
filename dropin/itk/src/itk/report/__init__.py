@@ -15,6 +15,7 @@ class CaseStatus(Enum):
     """Status of a test case execution."""
 
     PASSED = "passed"
+    PASSED_WITH_WARNINGS = "passed_with_warnings"
     FAILED = "failed"
     ERROR = "error"
     SKIPPED = "skipped"
@@ -41,6 +42,7 @@ class CaseResult:
         timeline_path: Relative path to timeline.html.
         thumbnail_svg: Inline SVG for mini diagram.
         timeline_svg: Inline SVG for mini timeline.
+        spans: List of Span objects (for soak testing / iteration analysis).
     """
 
     case_id: str
@@ -59,11 +61,12 @@ class CaseResult:
     timeline_path: Optional[str] = None
     thumbnail_svg: Optional[str] = None
     timeline_svg: Optional[str] = None
+    spans: list = field(default_factory=list)
 
     @property
     def passed(self) -> bool:
-        """Check if case passed."""
-        return self.status == CaseStatus.PASSED
+        """Check if case passed (includes passed-with-warnings)."""
+        return self.status in (CaseStatus.PASSED, CaseStatus.PASSED_WITH_WARNINGS)
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""

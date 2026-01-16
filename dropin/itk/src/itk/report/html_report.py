@@ -20,8 +20,9 @@ from itk.report import CaseResult, CaseStatus, SuiteResult
 # Status colors and icons
 STATUS_STYLES = {
     CaseStatus.PASSED: {"color": "#10b981", "bg": "#d1fae5", "icon": "✅", "label": "PASSED"},
+    CaseStatus.PASSED_WITH_WARNINGS: {"color": "#f59e0b", "bg": "#fef3c7", "icon": "⚠️", "label": "PASSED*"},
     CaseStatus.FAILED: {"color": "#ef4444", "bg": "#fee2e2", "icon": "❌", "label": "FAILED"},
-    CaseStatus.ERROR: {"color": "#f59e0b", "bg": "#fef3c7", "icon": "⚠️", "label": "ERROR"},
+    CaseStatus.ERROR: {"color": "#f59e0b", "bg": "#fef3c7", "icon": "💥", "label": "ERROR"},
     CaseStatus.SKIPPED: {"color": "#6b7280", "bg": "#f3f4f6", "icon": "⏭️", "label": "SKIPPED"},
 }
 

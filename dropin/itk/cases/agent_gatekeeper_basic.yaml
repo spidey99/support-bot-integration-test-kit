@@ -1,6 +1,6 @@
 id: agent_gatekeeper_basic
 name: Basic Bedrock Agent gatekeeper flow
-fixture: ../fixtures/logs/sample_run_001.jsonl
+fixture: ../fixtures/logs/agent_gatekeeper_flow.jsonl
 entrypoint:
   type: bedrock_invoke_agent
   target:

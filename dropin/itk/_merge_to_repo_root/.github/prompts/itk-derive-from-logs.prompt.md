@@ -55,7 +55,7 @@ expected:
 6. **Validate offline**:
 
 ```bash
-itk run --offline --case cases/derived/derived-001.yaml --out artifacts/test-001
+itk run --mode dev-fixtures --case cases/derived/derived-001.yaml --out artifacts/test-001
 ```
 
 ## Tips

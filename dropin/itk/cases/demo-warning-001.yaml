@@ -1,0 +1,20 @@
+id: demo-warning-001
+name: Demo warning - passes with retries
+fixture: ../fixtures/logs/warning_demo.jsonl
+entrypoint:
+  type: sqs_event
+  target:
+    mode: invoke_lambda
+    target_arn_or_url: "REPLACE_ME"
+  payload:
+    Records:
+      - messageId: "00000000-0000-0000-0000-000000000000"
+        body:
+          request:
+            userMessage: "hello"
+expected:
+  invariants:
+    - name: has_spans
+notes:
+  source: "demo fixture"
+  purpose: "demonstrates warning indicator (passed with retries) in suite report"

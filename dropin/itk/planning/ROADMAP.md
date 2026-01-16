@@ -28,7 +28,7 @@ ALWAYS hit live QA resources.
 - [ ] Configure `.env` with real AWS targets (queue URL, log groups, etc.)
 - [ ] Run resolver to populate `targets.json`
 - [ ] Execute 1 case end-to-end against live QA
-- [ ] Verify artifacts generated: `trace.html`, `spans.jsonl`, `report.md`
+- [ ] Verify artifacts generated: `trace-viewer.html`, `timeline.html`, `spans.jsonl`, `report.md`
 
 ## Phase 2 — Fix logging gaps
 - [ ] Run `itk audit` to identify missing boundary logs
@@ -41,6 +41,8 @@ ALWAYS hit live QA resources.
 - [ ] Run top 10 common path signatures
 - [ ] Run rare-but-critical paths (guardrail blocks, error handling)
 - [ ] Generate suite report
+- [ ] Review status distribution: ✅ Passed, ⚠️ Warning, ❌ Failed, 💥 Error
+- [ ] Investigate any ⚠️ warning tests (retries or error spans detected)
 
 ## Phase 4 — CI integration
 - [ ] Add ITK to CI pipeline (GitHub Actions or equivalent)
@@ -48,9 +50,18 @@ ALWAYS hit live QA resources.
 - [ ] Optional: compare mode gate (fail on regressions)
 
 ## Phase 5 — Soak testing
-- [ ] Configure soak mode for continuous execution
-- [ ] Set up rate limiting to avoid throttling
-- [ ] Monitor for flaky tests, latency regressions
+- [ ] Run soak test with 50+ iterations:
+  ```bash
+  itk soak --case cases/<case>.yaml --out artifacts/soak/ --iterations 50 --detailed
+  ```
+- [ ] Review soak-report.html metrics:
+  - Pass Rate: Target 100%
+  - Consistency Score: Target >90% (reveals LLM non-determinism)
+  - Throttle Events: Target 0
+- [ ] Drill-down into warning iterations (click row → trace-viewer.html)
+- [ ] If consistency < 50%, investigate retry patterns
+- [ ] If throttle events > 0, reduce rate: `--initial-rate 0.5`
+- [ ] Document findings in test report
 
 ---
 

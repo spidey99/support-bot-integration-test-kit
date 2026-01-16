@@ -52,7 +52,7 @@
 
 ## Phase 7 — Strong interactive trace viewer 🆕
 - Vendor JS libs (no CDN): svg-pan-zoom, vis-timeline, fuse.js, jsoneditor
-- `trace.html` per run: sequence view + timeline view + payload inspector
+- `trace-viewer.html` per run: sequence view + timeline view + payload inspector
 - Search, filter, keyboard navigation
 - Retry visualization, error highlighting
 - `mini.svg` for report thumbnails

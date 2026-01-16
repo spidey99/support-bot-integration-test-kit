@@ -19,7 +19,7 @@ from itk.soak.rate_controller import (
     RateChange,
     create_rate_controller,
 )
-from itk.soak.soak_runner import detect_throttle_in_spans, run_soak
+from itk.soak.soak_runner import detect_throttle_in_spans, run_soak, IterationResult
 
 
 # ===== SoakConfig tests =====
@@ -379,10 +379,10 @@ def test_run_soak_iterations_mode():
     config = SoakConfig(mode=SoakMode.ITERATIONS, iterations=5)
     call_count = 0
 
-    def run_iteration(i: int) -> tuple[bool, list[dict], float]:
+    def run_iteration(i: int) -> IterationResult:
         nonlocal call_count
         call_count += 1
-        return True, [], 10.0
+        return IterationResult(passed=True, status="passed", spans=[], duration_ms=10.0)
 
     result = run_soak(config, run_iteration)
 
@@ -395,9 +395,15 @@ def test_run_soak_with_failures():
     """Test soak run with some failures."""
     config = SoakConfig(mode=SoakMode.ITERATIONS, iterations=4)
 
-    def run_iteration(i: int) -> tuple[bool, list[dict], float]:
+    def run_iteration(i: int) -> IterationResult:
         # Fail every other iteration
-        return i % 2 == 0, [], 10.0
+        passed = i % 2 == 0
+        return IterationResult(
+            passed=passed,
+            status="passed" if passed else "failed",
+            spans=[],
+            duration_ms=10.0,
+        )
 
     result = run_soak(config, run_iteration)
 
@@ -410,10 +416,10 @@ def test_run_soak_with_throttle():
     """Test soak run with throttle detection."""
     config = SoakConfig(mode=SoakMode.ITERATIONS, iterations=3)
 
-    def run_iteration(i: int) -> tuple[bool, list[dict], float]:
+    def run_iteration(i: int) -> IterationResult:
         # Second iteration has throttle
         spans = [{"span_id": "s1", "status_code": 429}] if i == 1 else []
-        return True, spans, 10.0
+        return IterationResult(passed=True, status="passed", spans=spans, duration_ms=10.0)
 
     result = run_soak(config, run_iteration)
 
@@ -429,8 +435,8 @@ def test_run_soak_callbacks():
     iterations_seen = []
     rate_changes = []
 
-    def run_iteration(i: int) -> tuple[bool, list[dict], float]:
-        return True, [], 10.0
+    def run_iteration(i: int) -> IterationResult:
+        return IterationResult(passed=True, status="passed", spans=[], duration_ms=10.0)
 
     def on_iteration(it: SoakIteration):
         iterations_seen.append(it.iteration)

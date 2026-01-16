@@ -27,10 +27,13 @@ This folder is intended to be copied into the **work** repo.
 ### Offline mode (no AWS required)
 ```bash
 # Run a case with fixtures
-itk run --offline --case cases/example-001.yaml --out artifacts/run-001
+itk run --mode dev-fixtures --case cases/example-001.yaml --out artifacts/run-001
 
 # Audit logging gaps
-itk audit --offline --case cases/example-001.yaml --out artifacts/audit-001
+itk audit --mode dev-fixtures --case cases/example-001.yaml --out artifacts/audit-001
+
+# Run a full test suite
+itk suite --mode dev-fixtures --cases-dir cases/ --out artifacts/suite-demo/
 ```
 
 ### Online mode (requires AWS credentials)
@@ -70,11 +73,23 @@ entrypoint:
 
 | File | Description |
 |------|-------------|
-| `sequence.mmd` | Mermaid sequence diagram |
+| `trace-viewer.html` | **Primary** - Interactive SVG sequence diagram |
+| `timeline.html` | Waterfall timeline visualization |
+| `sequence.mmd` | Mermaid sequence diagram (GitHub-compatible) |
+| `sequence.html` | Legacy Mermaid-rendered HTML diagram |
+| `thumbnail.svg` | Mini sequence preview for suite report |
 | `spans.jsonl` | All spans in JSONL format |
-| `report.md` | Human-readable summary |
+| `report.md` | Human-readable summary with invariant results |
 | `payloads/*.json` | Request/response payloads |
 | `logging-gaps.md` | (audit only) Missing fields report |
+
+## Suite Report
+
+When running `itk suite`, open `index.html` to see:
+- Summary cards (total, passed, warning, failed, error)
+- Status icons: ✅ Passed, ⚠️ Warning (retries/errors), ❌ Failed, 💥 Error
+- Modal viewers for Sequence and Timeline diagrams
+- Search and filter controls
 
 ## Minimal recommended change (optional but high value)
 

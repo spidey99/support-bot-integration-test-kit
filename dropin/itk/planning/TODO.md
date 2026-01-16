@@ -24,7 +24,7 @@
 - [ ] Pick a simple case from `cases/`
 - [ ] Run: `itk run --case cases/example.yaml --out artifacts/run-001/`
 - [ ] Verify artifacts created:
-  - `trace.html` — opens in browser, shows sequence
+  - `trace-viewer.html` — opens in browser, shows sequence
   - `spans.jsonl` — contains span data
   - `report.md` — summary
 - [ ] If diagram is incomplete, proceed to ITK-W-0004
@@ -57,13 +57,32 @@
 - [ ] Set up artifact upload for test reports
 - [ ] Optional: add compare mode to fail on regressions
 
-## ITK-W-0008 — Soak testing (optional)
+## ITK-W-0008 — Soak testing
 - [ ] Configure soak parameters in `.env`:
-  - `ITK_SOAK_DURATION` or `ITK_SOAK_ITERATIONS`
-  - `ITK_SOAK_INTERVAL`
-  - `ITK_SOAK_MAX_INFLIGHT`
-- [ ] Run: `itk soak --suite suites/smoke.yaml --out artifacts/soak/`
-- [ ] Monitor for throttling, adjust rate limiter as needed
+  - `ITK_SOAK_ITERATIONS` (number of iterations) or `ITK_SOAK_DURATION` (time-based)
+  - `ITK_SOAK_INITIAL_RATE` (default: 1.0 req/s)
+- [ ] Run soak with detailed artifacts:
+  ```bash
+  itk soak --case cases/<case>.yaml --out artifacts/soak-001/ --iterations 50 --detailed
+  ```
+- [ ] Open soak report: `artifacts/soak-001/soak-report.html`
+- [ ] Review metrics:
+  - **Pass Rate**: Should be 100% for stable systems
+  - **Consistency Score**: Clean passes ÷ total passes (reveals LLM non-determinism)
+  - **Warning Rate**: Passes with retries (high = flaky)
+- [ ] Drill-down: Click iteration grid or table rows → opens trace-viewer.html
+- [ ] Monitor for throttling: If throttle events > 0, increase interval or reduce rate
+
+## ITK-W-0009 — Soak report interpretation
+- [ ] Understand the metrics:
+  - **0% Consistency + 100% Pass Rate** = All passes required retries (LLM non-determinism)
+  - **High retry count** = System is flaky, investigate specific iterations
+  - **Throttle events** = Hitting AWS limits, reduce rate
+- [ ] Use filters in soak report:
+  - "Warnings Only" — See which iterations had retries
+  - "Has Retries" — Focus on non-deterministic runs
+  - Sort by Duration to find slow runs
+- [ ] Export for CI: Check `soak-result.json` for programmatic access
 
 ---
 
@@ -72,10 +91,11 @@
 ### Commands (all execute LIVE by default)
 ```bash
 itk run --case <yaml> --out <dir>       # Single test run
-itk suite --suite <yaml> --out <dir>    # Run test suite  
+itk suite --cases-dir <dir> --out <dir> # Run test suite  
 itk audit --case <yaml> --out <dir>     # Analyze logging gaps
 itk derive --since <duration> --out <dir>  # Generate cases from logs
-itk soak --suite <yaml> --out <dir>     # Continuous execution
+itk soak --case <yaml> --out <dir> --iterations N  # Soak test with N iterations
+itk soak --case <yaml> --out <dir> --duration 1h   # Soak test for 1 hour
 itk scan --repo . --out <dir>           # Codebase coverage scan
 ```
 
@@ -87,3 +107,33 @@ itk run --mode dev-fixtures --case ...
 # WRONG - don't mock AWS
 ITK_MOCK_AWS=true itk run ...
 ```
+
+---
+
+## Report Status Reference
+
+When reviewing `index.html` suite reports, understand the status indicators:
+
+| Status | Icon | Meaning |
+|--------|------|---------|
+| **Passed** | ✅ | All invariants passed, no errors, no retries |
+| **Warning** | ⚠️ | Passed but with retries or error spans detected |
+| **Failed** | ❌ | One or more invariants failed |
+| **Error** | 💥 | Test execution error (exception during run) |
+| **Skipped** | ⏭️ | Test was skipped |
+
+**Warning status** indicates "success but not happy path" — the test completed but:
+- Retries occurred (`attempt > 1`)
+- Error spans were logged (even if overall successful)
+
+These are good candidates for investigation — they may indicate flaky tests or degraded behavior.
+
+---
+
+## Trace Viewer Quick Reference
+
+The sequence diagram shows:
+- **Entry arrow** (`▶ operation`) — Test start, pointing INTO first lifeline
+- **Exit arrow** (`◀ latency ✅/❌`) — Test end, pointing OUT from first lifeline
+- **Retry badge** (`🔄 retry N`) — On left margin, only for retried calls
+- **Status on return arrows** — ✅ success / ❌ error

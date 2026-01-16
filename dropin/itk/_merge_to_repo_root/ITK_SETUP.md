@@ -82,9 +82,9 @@ All artifacts are static HTML/Markdown viewable via `file://`:
 
 ```bash
 # Open trace viewer
-start artifacts/run-001/trace.html   # Windows
-open artifacts/run-001/trace.html    # Mac
-xdg-open artifacts/run-001/trace.html  # Linux
+start artifacts/run-001/trace-viewer.html   # Windows
+open artifacts/run-001/trace-viewer.html    # Mac
+xdg-open artifacts/run-001/trace-viewer.html  # Linux
 ```
 
 ## GitLab CI Integration

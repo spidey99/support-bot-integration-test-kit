@@ -201,6 +201,30 @@
 - [x] Add 2 new tests for payload display
 - [ ] ~~Consider inline payload preview on hover (tooltip)~~ (deferred)
 
+## ITK-0026 — Test status enhancements ✅
+- [x] Add `PASSED_WITH_WARNINGS` status for non-happy-path success scenarios
+- [x] Trigger warning when: retry_count > 0 OR error_count > 0
+- [x] Update suite report filters: [✅][⚠️][❌][💥] (passed/warning/failed/error)
+- [x] Differentiate error (execution failure) from failed (invariant failure): 💥 vs ❌
+- [x] Add demo-failure-001.yaml and demo-warning-001.yaml test cases
+- [x] Add 2 new tests for warning status
+
+## ITK-0027 — Entry/exit arrow redesign ✅
+- [x] Replace curved self-loop arrows with intuitive horizontal arrows
+- [x] Entry arrow: `▶ operation_name` from left INTO first lifeline
+- [x] Exit arrow: `◀ latency ✅/❌` from first lifeline TO left (mirrors entry)
+- [x] Both arrows originate/terminate on LEFT side (no confusion with retries)
+- [x] Retry badge repositioned: `🔄 retry N` at fixed left margin (x=30)
+- [x] Update retry numbering: attempt 2 → "retry 1", attempt 3 → "retry 2"
+- [x] Add 3 new tests for entry/exit arrow rendering
+
+## ITK-0028 — Suite report button layout ✅
+- [x] Two-row button layout in expanded test details:
+  - Row 1: `🔍 Sequence` and `📊 Timeline` modal buttons (primary)
+  - Row 2: `↗️ Sequence Tab` and `↗️ Timeline Tab` links (secondary)
+- [x] Modal supports dynamic title ("Sequence Diagram" or "Timeline View")
+- [x] Add timeline modal button test
+
 ---
 
 ## Implementation Notes (Tier 2)
@@ -218,7 +242,7 @@
 - `itk scan --repo <path> --out <dir>` — scans codebase for coverage gaps
 - `itk suite --cases-dir <path> --out <dir>` — runs multiple cases, generates index.html report
 - `itk soak --case <path> --out <dir>` — runs soak test with adaptive rate control
-- 355 pytest tests covering all modules
+- 453 pytest tests covering all modules
 
 ### What Tier-3 must wire:
 - AWS adapters to real resources (boto3 clients stubbed but ready)

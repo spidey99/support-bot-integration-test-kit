@@ -1,6 +1,6 @@
 id: lambda_direct_invoke
 name: Direct Lambda invocation test
-fixture: ../fixtures/logs/sample_run_001.jsonl
+fixture: ../fixtures/logs/lambda_direct.jsonl
 entrypoint:
   type: lambda_invoke
   target:

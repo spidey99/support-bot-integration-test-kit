@@ -224,5 +224,5 @@ After: 8 spans (entry, bedrock-call, bedrock-return,
 1. Deploy the updated code
 2. Run the test: `itk run --case cases/<name>.yaml --out artifacts/new/`
 3. Check span count: `wc -l artifacts/new/spans.jsonl`
-4. View diagram: open `artifacts/new/trace.html`
+4. View diagram: open `artifacts/new/trace-viewer.html`
 5. Re-run audit: `itk audit --case cases/<name>.yaml`

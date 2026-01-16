@@ -1,6 +1,6 @@
 id: sqs_basic_message
 name: Basic SQS message processing
-fixture: ../fixtures/logs/sample_run_001.jsonl
+fixture: ../fixtures/logs/sqs_basic.jsonl
 entrypoint:
   type: sqs_event
   target:

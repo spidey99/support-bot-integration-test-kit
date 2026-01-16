@@ -387,7 +387,8 @@ class TestSVGRendering:
 
         svg = _render_svg_message(msg, {})
 
-        assert "retry 3" in svg
+        # attempt=3 means second retry, so badge shows "retry 2"
+        assert "retry 2" in svg
         assert "retry-badge" in svg
 
     def test_render_svg_message_has_call_and_return_arrows(self) -> None:

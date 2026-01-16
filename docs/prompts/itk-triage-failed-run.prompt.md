@@ -24,15 +24,30 @@ An ITK test run failed. I need to triage.
 **Artifacts directory**: artifacts/[run-id]/
 **Error message**: [paste error or "unknown"]
 **Symptom**: [timeout / assertion failed / no spans / empty diagram / other]
+**Status**: [✅ passed / ⚠️ warning / ❌ failed / 💥 error]
 
 Steps:
 1. List artifacts: ls artifacts/[run-id]/
 2. Check report: cat artifacts/[run-id]/report.md
-3. Check spans: head artifacts/[run-id]/spans.jsonl
-4. If diagram exists, check gaps
-5. If no spans, check CloudWatch directly
-6. Determine root cause and suggest fix
+3. Open trace viewer: start artifacts/[run-id]/trace-viewer.html
+4. Check spans: head artifacts/[run-id]/spans.jsonl
+5. If diagram exists, check gaps
+6. If no spans, check CloudWatch directly
+7. Determine root cause and suggest fix
 ```
+
+---
+
+## Status Types
+
+| Status | Icon | Meaning |
+|--------|------|---------|
+| Passed | ✅ | All invariants passed, no errors, no retries |
+| Warning | ⚠️ | Passed but with retries or error spans detected |
+| Failed | ❌ | One or more invariants failed |
+| Error | 💥 | Test execution error (exception during run) |
+
+**Note**: Warning status indicates success with non-happy-path behavior — investigate retries or error spans.
 
 ---
 
@@ -45,14 +60,16 @@ An ITK test run failed. I need to triage.
 **Artifacts directory**: artifacts/run-42/
 **Error message**: "AssertionError: expected 3 spans, got 1"
 **Symptom**: assertion failed
+**Status**: ❌ failed
 
 Steps:
 1. List artifacts: ls artifacts/run-42/
 2. Check report: cat artifacts/run-42/report.md
-3. Check spans: head artifacts/run-42/spans.jsonl
-4. If diagram exists, check gaps
-5. If no spans, check CloudWatch directly
-6. Determine root cause and suggest fix
+3. Open trace viewer: start artifacts/run-42/trace-viewer.html
+4. Check spans: head artifacts/run-42/spans.jsonl
+5. If diagram exists, check gaps
+6. If no spans, check CloudWatch directly
+7. Determine root cause and suggest fix
 ```
 
 ---

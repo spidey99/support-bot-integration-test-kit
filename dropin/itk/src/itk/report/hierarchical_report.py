@@ -49,6 +49,13 @@ STATUS_CONFIG = {
         "icon": "✅",
         "label": "PASSED",
     },
+    CaseStatus.PASSED_WITH_WARNINGS: {
+        "color": "#f59e0b",
+        "bg": "#fef3c7",
+        "dark_bg": "#78350f",
+        "icon": "⚠️",
+        "label": "PASSED*",
+    },
     CaseStatus.FAILED: {
         "color": "#ef4444",
         "bg": "#fee2e2",
@@ -60,7 +67,7 @@ STATUS_CONFIG = {
         "color": "#f59e0b",
         "bg": "#fef3c7",
         "dark_bg": "#78350f",
-        "icon": "⚠️",
+        "icon": "💥",
         "label": "ERROR",
     },
     CaseStatus.SKIPPED: {
@@ -224,19 +231,43 @@ def _render_test_details(case: CaseResult) -> str:
     # Action buttons
     actions_html = ""
     if case.trace_viewer_path:
+        timeline_modal_btn = ""
+        if case.timeline_path:
+            timeline_modal_btn = f'''
+            <button class="btn btn-primary open-timeline-modal-btn" 
+                    data-timeline-path="{html.escape(case.timeline_path)}"
+                    title="Open timeline view in modal">
+                📊 View Timeline
+            </button>'''
+        
         actions_html = f'''
         <div class="test-actions">
-            <button class="btn btn-primary open-modal-btn" 
-                    data-trace-path="{html.escape(case.trace_viewer_path)}"
-                    title="Open full interactive trace viewer">
-                🔍 View Full Trace
-            </button>
-            <a href="{html.escape(case.trace_viewer_path)}" 
-               class="btn btn-secondary" 
-               target="_blank"
-               title="Open in new tab">
-                ↗️ Open in Tab
-            </a>
+            <div class="btn-row">
+                <button class="btn btn-primary btn-half open-modal-btn" 
+                        data-trace-path="{html.escape(case.trace_viewer_path)}"
+                        title="Open full interactive trace viewer">
+                    🔍 Sequence
+                </button>
+                <button class="btn btn-primary btn-half open-timeline-modal-btn" 
+                        data-timeline-path="{html.escape(case.timeline_path or case.trace_viewer_path)}"
+                        title="Open timeline view in modal">
+                    📊 Timeline
+                </button>
+            </div>
+            <div class="btn-row">
+                <a href="{html.escape(case.trace_viewer_path)}" 
+                   class="btn btn-secondary btn-half" 
+                   target="_blank"
+                   title="Open sequence diagram in new tab">
+                    ↗️ Sequence Tab
+                </a>
+                <a href="{html.escape(case.timeline_path or case.trace_viewer_path)}" 
+                   class="btn btn-secondary btn-half"
+                   target="_blank"
+                   title="Open timeline view in new tab">
+                    ↗️ Timeline Tab
+                </a>
+            </div>
         </div>'''
 
     return f'''
@@ -890,6 +921,17 @@ def _get_css() -> str:
             gap: 0.5rem;
         }
 
+        .btn-row {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .btn-half {
+            flex: 1;
+            font-size: 0.75rem;
+            padding: 0.5rem 0.75rem;
+        }
+
         .btn {
             display: inline-flex;
             align-items: center;
@@ -1137,11 +1179,13 @@ def _get_js() -> str:
     }
 
     // Modal functionality
-    function openModal(tracePath) {
+    function openModal(tracePath, title) {
         const modal = document.getElementById('trace-modal');
         const iframe = document.getElementById('trace-iframe');
+        const modalTitle = modal.querySelector('.modal-title');
         
-        // Set iframe src
+        // Set title and iframe src
+        modalTitle.textContent = title || 'Trace Viewer';
         iframe.src = tracePath;
         
         // Show modal
@@ -1173,7 +1217,18 @@ def _get_js() -> str:
             e.stopPropagation();
             const tracePath = this.dataset.tracePath;
             if (tracePath) {
-                openModal(tracePath);
+                openModal(tracePath, 'Sequence Diagram');
+            }
+        });
+    });
+
+    // Handle "View Timeline" button clicks
+    document.querySelectorAll('.open-timeline-modal-btn').forEach(btn => {
+        btn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            const timelinePath = this.dataset.timelinePath;
+            if (timelinePath) {
+                openModal(timelinePath, 'Timeline View');
             }
         });
     });
