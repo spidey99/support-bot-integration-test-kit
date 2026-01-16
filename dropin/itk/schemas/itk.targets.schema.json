@@ -1,0 +1,77 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://itk.example.com/schemas/targets.json",
+  "title": "ITK Targets Schema",
+  "description": "Schema for resolved target resources (from resolver command or .env)",
+  "type": "object",
+  "properties": {
+    "sqs_queue_url": {
+      "type": "string",
+      "format": "uri",
+      "description": "SQS queue URL for publishing test messages",
+      "examples": ["https://sqs.us-east-1.amazonaws.com/123456789012/qa-support-queue"]
+    },
+    "log_groups": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "CloudWatch log groups to query for spans",
+      "examples": [["/aws/lambda/qa-orchestrator", "/aws/lambda/qa-processor"]]
+    },
+    "aws_region": {
+      "type": "string",
+      "default": "us-east-1",
+      "description": "AWS region for all resources",
+      "examples": ["us-east-1", "us-west-2", "eu-west-1"]
+    },
+    "lambda_function_name": {
+      "type": "string",
+      "description": "Lambda function name for direct invocation entrypoint",
+      "examples": ["qa-support-orchestrator"]
+    },
+    "bedrock_agent_id": {
+      "type": "string",
+      "description": "Bedrock agent ID for agent entrypoint",
+      "examples": ["AGENTID123"]
+    },
+    "bedrock_agent_alias_id": {
+      "type": "string",
+      "description": "Bedrock agent alias ID",
+      "examples": ["ALIASID456"]
+    },
+    "dynamodb_table_name": {
+      "type": "string",
+      "description": "DynamoDB table for session/state storage",
+      "examples": ["qa-support-sessions"]
+    },
+    "s3_bucket": {
+      "type": "string",
+      "description": "S3 bucket for artifacts or knowledge base",
+      "examples": ["qa-support-artifacts"]
+    }
+  },
+  "additionalProperties": {
+    "type": ["string", "number", "boolean", "array", "object"],
+    "description": "Custom target properties for specific deployments"
+  },
+  "examples": [
+    {
+      "sqs_queue_url": "https://sqs.us-east-1.amazonaws.com/123456789012/qa-support-queue",
+      "log_groups": [
+        "/aws/lambda/qa-orchestrator",
+        "/aws/lambda/qa-processor",
+        "/aws/lambda/qa-bedrock-handler"
+      ],
+      "aws_region": "us-east-1",
+      "lambda_function_name": "qa-support-orchestrator",
+      "bedrock_agent_id": "ABC123DEF",
+      "bedrock_agent_alias_id": "XYZ789"
+    },
+    {
+      "sqs_queue_url": "https://sqs.us-west-2.amazonaws.com/123456789012/staging-queue",
+      "log_groups": ["/aws/lambda/staging-handler"],
+      "aws_region": "us-west-2"
+    }
+  ]
+}

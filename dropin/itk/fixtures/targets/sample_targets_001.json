@@ -1,0 +1,11 @@
+{
+  "sqs_queue_url": "https://sqs.us-east-1.amazonaws.com/123456789012/sample-qa-queue",
+  "log_groups": [
+    "/aws/lambda/sample-orchestrator",
+    "/aws/lambda/sample-processor"
+  ],
+  "aws_region": "us-east-1",
+  "lambda_function_name": "sample-orchestrator",
+  "bedrock_agent_id": "SAMPLEAGENT",
+  "bedrock_agent_alias_id": "SAMPLEALIAS"
+}

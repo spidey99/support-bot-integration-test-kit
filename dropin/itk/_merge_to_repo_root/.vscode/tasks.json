@@ -1,0 +1,132 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "ITK: Run Case (dev-fixtures)",
+      "type": "shell",
+      "command": "itk run --mode dev-fixtures --case ${input:caseFile} --out artifacts/${input:runId}/",
+      "group": "test",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    },
+    {
+      "label": "ITK: Run Case (live)",
+      "type": "shell",
+      "command": "itk run --mode live --case ${input:caseFile} --out artifacts/${input:runId}/",
+      "group": "test",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    },
+    {
+      "label": "ITK: Audit Logging Gaps",
+      "type": "shell",
+      "command": "itk audit --mode dev-fixtures --case ${input:caseFile} --out artifacts/audit/",
+      "group": "test",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    },
+    {
+      "label": "ITK: Validate Case",
+      "type": "shell",
+      "command": "itk validate --case ${input:caseFile}",
+      "group": "test",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    },
+    {
+      "label": "ITK: Scan Codebase",
+      "type": "shell",
+      "command": "itk scan --repo . --out artifacts/scan/ --generate-skeletons",
+      "group": "test",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    },
+    {
+      "label": "ITK: Compare Runs",
+      "type": "shell",
+      "command": "itk compare --a ${input:dirA} --b ${input:dirB} --out artifacts/compare/",
+      "group": "test",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    },
+    {
+      "label": "ITK: Open Trace Viewer",
+      "type": "shell",
+      "command": "start ${input:artifactDir}/trace.html",
+      "windows": {
+        "command": "start ${input:artifactDir}/trace.html"
+      },
+      "linux": {
+        "command": "xdg-open ${input:artifactDir}/trace.html"
+      },
+      "osx": {
+        "command": "open ${input:artifactDir}/trace.html"
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "silent"
+      }
+    },
+    {
+      "label": "ITK: Pre-flight Check",
+      "type": "shell",
+      "command": "aws sts get-caller-identity && grep ITK_MODE .env && echo '✅ Pre-flight passed'",
+      "group": "test",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      }
+    }
+  ],
+  "inputs": [
+    {
+      "id": "caseFile",
+      "type": "promptString",
+      "description": "Path to case YAML file",
+      "default": "dropin/itk/cases/example-001.yaml"
+    },
+    {
+      "id": "runId",
+      "type": "promptString",
+      "description": "Run ID for artifact directory",
+      "default": "run-001"
+    },
+    {
+      "id": "dirA",
+      "type": "promptString",
+      "description": "First artifacts directory (baseline)",
+      "default": "artifacts/run-001"
+    },
+    {
+      "id": "dirB",
+      "type": "promptString",
+      "description": "Second artifacts directory (current)",
+      "default": "artifacts/run-002"
+    },
+    {
+      "id": "artifactDir",
+      "type": "promptString",
+      "description": "Artifacts directory to open",
+      "default": "artifacts/run-001"
+    }
+  ]
+}

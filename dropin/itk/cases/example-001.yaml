@@ -1,0 +1,22 @@
+id: example-001
+name: Example SQS-shaped entrypoint
+fixture: ../fixtures/logs/sample_run_001.jsonl
+entrypoint:
+  type: sqs_event
+  target:
+    mode: invoke_lambda
+    # In work repo, this will be a Lambda ARN or function name
+    target_arn_or_url: "REPLACE_ME"
+  payload:
+    Records:
+      - messageId: "00000000-0000-0000-0000-000000000000"
+        body:
+          request:
+            userMessage: "hello"
+expected:
+  invariants:
+    - name: has_spans
+notes:
+  source: "placeholder"
+  missing_fields:
+    - "real Lambda target"

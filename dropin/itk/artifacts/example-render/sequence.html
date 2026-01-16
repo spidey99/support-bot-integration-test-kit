@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>ITK Sequence Diagram</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 1200px;
+            margin: 40px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        h1 { color: #333; }
+        .mermaid {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+    </style>
+</head>
+<body>
+    <h1>ITK Sequence Diagram — sample_run_001</h1>
+    <div class="mermaid">
+sequenceDiagram
+    participant entrypoint_sqs_event as entrypoint:sqs_event
+    participant agent_gatekeeper as agent:gatekeeper
+    participant lambda_actionGroupFoo as lambda:actionGroupFoo
+
+    entrypoint_sqs_event->>entrypoint_sqs_event: InvokeLambda [attempt 1]
+    Note over entrypoint_sqs_event,entrypoint_sqs_event: req=payloads/span-001.request.json, res=payloads/span-001.response.json, λ:req-aaa
+
+    entrypoint_sqs_event->>agent_gatekeeper: InvokeAgent [attempt 1]
+    Note over entrypoint_sqs_event,agent_gatekeeper: req=payloads/span-002.request.json, res=payloads/span-002.response.json, br:sess-111
+
+    agent_gatekeeper->>lambda_actionGroupFoo: InvokeModel [attempt 1]
+    Note over agent_gatekeeper,lambda_actionGroupFoo: req=payloads/span-003.request.json, res=payloads/span-003.response.json
+    </div>
+    <script>
+        mermaid.initialize({ startOnLoad: true, theme: 'default' });
+    </script>
+</body>
+</html>

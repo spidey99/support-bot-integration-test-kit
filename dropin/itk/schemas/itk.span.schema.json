@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "itk.span.schema.json",
+  "type": "object",
+  "required": ["span_id", "component", "operation"],
+  "properties": {
+    "span_id": {"type": "string"},
+    "parent_span_id": {"type": ["string", "null"]},
+    "component": {"type": "string"},
+    "operation": {"type": "string"},
+    "ts_start": {"type": ["string", "null"]},
+    "ts_end": {"type": ["string", "null"]},
+    "attempt": {"type": ["integer", "null"]},
+    "itk_trace_id": {"type": ["string", "null"]},
+    "lambda_request_id": {"type": ["string", "null"]},
+    "xray_trace_id": {"type": ["string", "null"]},
+    "sqs_message_id": {"type": ["string", "null"]},
+    "bedrock_session_id": {"type": ["string", "null"]},
+    "request": {"type": ["object", "null"]},
+    "response": {"type": ["object", "null"]},
+    "error": {"type": ["object", "null"]}
+  },
+  "additionalProperties": true
+}

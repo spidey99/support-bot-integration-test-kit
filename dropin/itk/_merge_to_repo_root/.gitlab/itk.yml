@@ -1,0 +1,100 @@
+# ITK GitLab CI Integration
+#
+# Add this job to your .gitlab-ci.yml or include it from a separate file.
+# Runs integration tests against the deployed branch environment.
+
+# Example: include from a separate file
+# include:
+#   - local: '.gitlab/itk.yml'
+
+# -------------------------------------------------
+# ITK Integration Tests Stage
+# -------------------------------------------------
+
+.itk_base:
+  stage: test
+  image: python:3.12-slim
+  variables:
+    ITK_MODE: "live"
+    # Set these in GitLab CI/CD variables (masked):
+    # AWS_ACCESS_KEY_ID
+    # AWS_SECRET_ACCESS_KEY
+    # AWS_SESSION_TOKEN (if using temporary creds)
+    # AWS_DEFAULT_REGION
+  before_script:
+    - pip install -e dropin/itk[dev]
+    - aws --version || pip install awscli
+  artifacts:
+    paths:
+      - itk-artifacts/
+    expire_in: 7 days
+    when: always
+
+# -------------------------------------------------
+# Run ITK tests after deployment
+# -------------------------------------------------
+
+itk:smoke:
+  extends: .itk_base
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      when: manual
+      allow_failure: true
+    - if: $CI_COMMIT_BRANCH
+      when: manual
+      allow_failure: true
+  script:
+    # Resolve targets for this branch's deployment
+    - export ITK_SQS_QUEUE_URL="${QA_SQS_QUEUE_URL:-}"
+    - export ITK_LOG_GROUPS="${QA_LOG_GROUPS:-}"
+    - export ITK_AWS_REGION="${AWS_DEFAULT_REGION:-us-east-1}"
+    # Run smoke tests
+    - itk run --mode live --case dropin/itk/cases/smoke-001.yaml --out itk-artifacts/smoke/
+  needs:
+    - deploy  # Adjust to your deploy job name
+
+itk:suite:
+  extends: .itk_base
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: manual
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: always
+  script:
+    # Resolve targets dynamically
+    - |
+      if [ -n "$ITK_RESOLVER_CMD" ]; then
+        eval "$ITK_RESOLVER_CMD" > /tmp/targets.json
+        export ITK_SQS_QUEUE_URL=$(jq -r '.sqs_queue_url' /tmp/targets.json)
+        export ITK_LOG_GROUPS=$(jq -r '.log_groups | join(",")' /tmp/targets.json)
+      fi
+    # Run full suite
+    - itk suite --suite dropin/itk/suites/full.yaml --out itk-artifacts/suite/
+  needs:
+    - deploy
+
+itk:audit:
+  extends: .itk_base
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      when: manual
+      allow_failure: true
+  script:
+    - itk audit --mode dev-fixtures --case dropin/itk/cases/example-001.yaml --out itk-artifacts/audit/
+  artifacts:
+    paths:
+      - itk-artifacts/audit/logging-gaps.md
+    expire_in: 30 days
+
+# -------------------------------------------------
+# Scheduled soak test (optional)
+# -------------------------------------------------
+
+itk:soak:
+  extends: .itk_base
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule" && $ITK_SOAK_ENABLED == "true"
+      when: always
+  script:
+    - itk soak --case dropin/itk/cases/smoke-001.yaml --duration 30m --out itk-artifacts/soak/
+  timeout: 1h

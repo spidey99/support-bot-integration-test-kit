@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "itk.config.schema.json",
+  "type": "object",
+  "properties": {
+    "env": {"type": "string"},
+    "region": {"type": "string"},
+    "logGroups": {"type": "array", "items": {"type": "string"}},
+    "targets": {"type": "object"},
+    "redaction": {"type": "object"}
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,280 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://itk.example.com/schemas/tier3-task.json",
+  "title": "ITK Tier-3 Task Schema",
+  "description": "Structured format for handing off tasks from Tier-2 to Tier-3 agent",
+  "type": "object",
+  "required": ["task_id", "task_type", "description", "steps"],
+  "properties": {
+    "task_id": {
+      "type": "string",
+      "pattern": "^ITK-W-[0-9]{4}(-[a-z]+)?$",
+      "description": "Unique task identifier, e.g., ITK-W-0001-a"
+    },
+    "task_type": {
+      "type": "string",
+      "enum": [
+        "run-test",
+        "run-suite",
+        "derive-cases",
+        "audit-logging",
+        "scan-coverage",
+        "add-span-logging",
+        "add-entrypoint-adapter",
+        "triage-failure",
+        "soak-test",
+        "custom"
+      ],
+      "description": "Category of task for the agent to perform"
+    },
+    "description": {
+      "type": "string",
+      "minLength": 10,
+      "maxLength": 500,
+      "description": "Human-readable description of what needs to be done"
+    },
+    "priority": {
+      "type": "string",
+      "enum": ["critical", "high", "medium", "low"],
+      "default": "medium",
+      "description": "Task priority level"
+    },
+    "prerequisites": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["check", "command"],
+        "properties": {
+          "check": {
+            "type": "string",
+            "description": "What to verify"
+          },
+          "command": {
+            "type": "string",
+            "description": "Command to run for verification"
+          },
+          "expected": {
+            "type": "string",
+            "description": "Expected output pattern"
+          }
+        }
+      },
+      "description": "Pre-flight checks to run before task execution"
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["action", "instruction"],
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "run-command",
+              "read-file",
+              "edit-file",
+              "create-file",
+              "verify-output",
+              "check-artifacts",
+              "report-result"
+            ],
+            "description": "Type of action to perform"
+          },
+          "instruction": {
+            "type": "string",
+            "description": "Detailed instruction for this step"
+          },
+          "command": {
+            "type": "string",
+            "description": "Shell command to execute (for run-command action)"
+          },
+          "file_path": {
+            "type": "string",
+            "description": "Path to file (for file operations)"
+          },
+          "success_criteria": {
+            "type": "string",
+            "description": "How to know this step succeeded"
+          },
+          "on_failure": {
+            "type": "string",
+            "enum": ["stop", "continue", "retry", "rollback"],
+            "default": "stop",
+            "description": "What to do if step fails"
+          }
+        }
+      },
+      "description": "Ordered list of steps to complete the task"
+    },
+    "inputs": {
+      "type": "object",
+      "properties": {
+        "case_file": {
+          "type": "string",
+          "description": "Path to test case YAML file"
+        },
+        "suite_file": {
+          "type": "string",
+          "description": "Path to test suite YAML file"
+        },
+        "source_file": {
+          "type": "string",
+          "description": "Path to source code file"
+        },
+        "time_window": {
+          "type": "string",
+          "pattern": "^[0-9]+[hmd]$",
+          "description": "Time window for log queries, e.g., 24h, 30m, 7d"
+        },
+        "correlation_id": {
+          "type": "string",
+          "description": "Specific correlation ID to filter on"
+        },
+        "custom": {
+          "type": "object",
+          "description": "Task-specific input parameters"
+        }
+      },
+      "description": "Input parameters for the task"
+    },
+    "outputs": {
+      "type": "object",
+      "required": ["artifacts_dir"],
+      "properties": {
+        "artifacts_dir": {
+          "type": "string",
+          "description": "Directory for output artifacts"
+        },
+        "expected_files": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "List of files expected to be generated"
+        },
+        "report_format": {
+          "type": "string",
+          "enum": ["markdown", "html", "json"],
+          "default": "markdown",
+          "description": "Format for final report"
+        }
+      },
+      "description": "Expected outputs from the task"
+    },
+    "rollback": {
+      "type": "object",
+      "properties": {
+        "procedure": {
+          "type": "string",
+          "description": "Steps to undo if task fails catastrophically"
+        },
+        "commands": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Rollback commands to execute"
+        }
+      },
+      "description": "Recovery procedure if task needs to be undone"
+    },
+    "constraints": {
+      "type": "object",
+      "properties": {
+        "timeout_minutes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 120,
+          "default": 30,
+          "description": "Maximum time allowed for task completion"
+        },
+        "max_retries": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 5,
+          "default": 2,
+          "description": "Maximum retry attempts on failure"
+        },
+        "require_qa_environment": {
+          "type": "boolean",
+          "default": true,
+          "description": "Task must run in QA environment, not prod"
+        },
+        "destructive": {
+          "type": "boolean",
+          "default": false,
+          "description": "Task may modify AWS resources"
+        }
+      },
+      "description": "Execution constraints and limits"
+    },
+    "context": {
+      "type": "object",
+      "properties": {
+        "related_work_item": {
+          "type": "string",
+          "description": "Related ITK work item ID"
+        },
+        "depends_on": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Task IDs this task depends on"
+        },
+        "notes": {
+          "type": "string",
+          "description": "Additional context for the agent"
+        }
+      },
+      "description": "Additional context about the task"
+    }
+  },
+  "examples": [
+    {
+      "task_id": "ITK-W-0001-a",
+      "task_type": "run-test",
+      "description": "Run the happy-path test case and verify all spans are captured",
+      "priority": "high",
+      "prerequisites": [
+        {
+          "check": "AWS credentials valid",
+          "command": "aws sts get-caller-identity",
+          "expected": "Account.*123456789012"
+        },
+        {
+          "check": "ITK mode is live",
+          "command": "grep ITK_MODE .env",
+          "expected": "ITK_MODE=live"
+        }
+      ],
+      "steps": [
+        {
+          "action": "run-command",
+          "instruction": "Execute the test case",
+          "command": "itk run --case cases/happy-path-001.yaml --out artifacts/run-001/",
+          "success_criteria": "Exit code 0 and artifacts created",
+          "on_failure": "stop"
+        },
+        {
+          "action": "check-artifacts",
+          "instruction": "Verify all expected files were created",
+          "file_path": "artifacts/run-001/",
+          "success_criteria": "trace.html, spans.jsonl, report.md exist"
+        },
+        {
+          "action": "report-result",
+          "instruction": "Summarize the test results"
+        }
+      ],
+      "inputs": {
+        "case_file": "cases/happy-path-001.yaml"
+      },
+      "outputs": {
+        "artifacts_dir": "artifacts/run-001/",
+        "expected_files": ["trace.html", "spans.jsonl", "report.md", "sequence.mmd"],
+        "report_format": "markdown"
+      },
+      "constraints": {
+        "timeout_minutes": 10,
+        "require_qa_environment": true,
+        "destructive": false
+      }
+    }
+  ]
+}

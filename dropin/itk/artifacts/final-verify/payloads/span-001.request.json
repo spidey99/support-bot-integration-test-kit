@@ -1,0 +1,12 @@
+{
+  "Records": [
+    {
+      "messageId": "m-1",
+      "body": {
+        "request": {
+          "userMessage": "hello"
+        }
+      }
+    }
+  ]
+}

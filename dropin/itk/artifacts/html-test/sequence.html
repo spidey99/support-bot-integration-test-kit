@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sequence Diagram</title>
+    <style>
+        :root {
+            --bg-color: #ffffff;
+            --text-color: #1f2937;
+            --border-color: #e5e7eb;
+            --line-color: #d1d5db;
+            --arrow-color: #3b82f6;
+            --error-color: #ef4444;
+            --success-color: #10b981;
+            --code-bg: #f3f4f6;
+            --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+        
+        [data-theme="dark"] {
+            --bg-color: #1f2937;
+            --text-color: #f9fafb;
+            --border-color: #374151;
+            --line-color: #4b5563;
+            --code-bg: #374151;
+        }
+        
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: var(--bg-color);
+            color: var(--text-color);
+            line-height: 1.5;
+            padding: 2rem;
+            min-height: 100vh;
+        }
+        
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        h1 {
+            font-size: 1.5rem;
+            font-weight: 600;
+        }
+        
+        .controls {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+        
+        .theme-toggle {
+            background: var(--code-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 9999px;
+            padding: 0.5rem 1rem;
+            cursor: pointer;
+            font-size: 0.875rem;
+            color: var(--text-color);
+            transition: all 0.2s;
+        }
+        
+        .theme-toggle:hover {
+            border-color: var(--arrow-color);
+        }
+        
+        .zoom-controls {
+            display: flex;
+            gap: 0.25rem;
+        }
+        
+        .zoom-btn {
+            background: var(--code-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 0.375rem;
+            padding: 0.5rem 0.75rem;
+            cursor: pointer;
+            font-size: 1rem;
+            color: var(--text-color);
+            transition: all 0.2s;
+        }
+        
+        .zoom-btn:hover {
+            border-color: var(--arrow-color);
+        }
+        
+        .diagram-container {
+            overflow-x: auto;
+            padding: 1rem 0;
+        }
+        
+        .diagram {
+            display: flex;
+            flex-direction: column;
+            min-width: max-content;
+            transform-origin: top left;
+            transition: transform 0.2s ease;
+        }
+        
+        .participants {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(150px, 1fr));
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+        
+        .participant {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            position: relative;
+        }
+        
+        .participant-icon {
+            width: 3rem;
+            height: 3rem;
+            border-radius: 0.75rem;
+            background: var(--participant-bg);
+            color: var(--participant-text);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.25rem;
+            box-shadow: var(--shadow);
+            margin-bottom: 0.5rem;
+        }
+        
+        .participant-label {
+            font-size: 0.75rem;
+            font-weight: 500;
+            text-align: center;
+            max-width: 140px;
+            word-break: break-word;
+        }
+        
+        .participant-line {
+            position: absolute;
+            top: 5rem;
+            bottom: -1000px;
+            width: 2px;
+            background: var(--line-color);
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 0;
+        }
+        
+        .messages {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+            position: relative;
+            padding-top: 1rem;
+        }
+        
+        .message {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(150px, 1fr));
+            gap: 1rem;
+            position: relative;
+            z-index: 1;
+        }
+        
+        .message-content {
+            grid-column: var(--start-col) / span var(--span-width, 1);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.25rem;
+        }
+        
+        .self-message .message-content {
+            grid-column: var(--start-col);
+        }
+        
+        .message-label {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: var(--bg-color);
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            border: 1px solid var(--border-color);
+            font-size: 0.875rem;
+            white-space: nowrap;
+        }
+        
+        .operation {
+            font-weight: 500;
+        }
+        
+        .latency {
+            color: var(--success-color);
+            font-size: 0.75rem;
+        }
+        
+        .retry-badge {
+            background: #fbbf24;
+            color: #000;
+            font-size: 0.625rem;
+            padding: 0.125rem 0.375rem;
+            border-radius: 9999px;
+            font-weight: 600;
+        }
+        
+        .message.error .message-label {
+            border-color: var(--error-color);
+        }
+        
+        .message.error .operation {
+            color: var(--error-color);
+        }
+        
+        .arrow {
+            width: 100%;
+            height: 2px;
+            background: var(--arrow-color);
+            position: relative;
+        }
+        
+        .arrow.right::after {
+            content: '';
+            position: absolute;
+            right: 0;
+            top: -4px;
+            border: 5px solid transparent;
+            border-left-color: var(--arrow-color);
+        }
+        
+        .arrow.left::after {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: -4px;
+            border: 5px solid transparent;
+            border-right-color: var(--arrow-color);
+        }
+        
+        .message.error .arrow {
+            background: var(--error-color);
+        }
+        
+        .message.error .arrow.right::after {
+            border-left-color: var(--error-color);
+        }
+        
+        .message.error .arrow.left::after {
+            border-right-color: var(--error-color);
+        }
+        
+        .self-arrow {
+            width: 40px;
+            height: 30px;
+            border: 2px solid var(--arrow-color);
+            border-left: none;
+            border-radius: 0 10px 10px 0;
+            position: relative;
+        }
+        
+        .self-arrow::after {
+            content: '';
+            position: absolute;
+            bottom: -1px;
+            left: -5px;
+            border: 5px solid transparent;
+            border-top-color: var(--arrow-color);
+        }
+        
+        .payload-details {
+            grid-column: 1 / -1;
+            margin-top: 0.5rem;
+        }
+        
+        .payload-details summary {
+            cursor: pointer;
+            font-size: 0.75rem;
+            color: var(--arrow-color);
+            text-align: center;
+            padding: 0.25rem;
+        }
+        
+        .payload-details summary:hover {
+            text-decoration: underline;
+        }
+        
+        .payload-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 1rem;
+            margin-top: 0.5rem;
+            padding: 1rem;
+            background: var(--code-bg);
+            border-radius: 0.5rem;
+        }
+        
+        .payload-item {
+            background: var(--bg-color);
+            border-radius: 0.375rem;
+            overflow: hidden;
+            border: 1px solid var(--border-color);
+        }
+        
+        .payload-item.error {
+            border-color: var(--error-color);
+        }
+        
+        .payload-label {
+            padding: 0.5rem 0.75rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+            background: var(--code-bg);
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        .payload-item.error .payload-label {
+            background: var(--error-color);
+            color: #fff;
+        }
+        
+        .payload-content {
+            padding: 0.75rem;
+            font-size: 0.75rem;
+            font-family: 'SF Mono', Monaco, Consolas, monospace;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            word-break: break-word;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        
+        .stats {
+            margin-top: 2rem;
+            padding: 1rem;
+            background: var(--code-bg);
+            border-radius: 0.5rem;
+            display: flex;
+            gap: 2rem;
+            font-size: 0.875rem;
+        }
+        
+        .stat-label {
+            color: var(--text-color);
+            opacity: 0.7;
+        }
+        
+        .stat-value {
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Sequence Diagram</h1>
+        <div class="controls">
+            <div class="zoom-controls">
+                <button class="zoom-btn" onclick="zoom(0.9)">−</button>
+                <button class="zoom-btn" onclick="zoom(1.1)">+</button>
+                <button class="zoom-btn" onclick="resetZoom()">Reset</button>
+            </div>
+            <button class="theme-toggle" onclick="toggleTheme()">🌙 Dark Mode</button>
+        </div>
+    </div>
+    
+    <div class="diagram-container">
+        <div class="diagram" id="diagram">
+            <div class="participants">
+                
+        <div class="participant" style="--participant-bg: #10b981; --participant-text: #fff;">
+            <div class="participant-icon">▶</div>
+            <div class="participant-label">entrypoint:sqs_event</div>
+            <div class="participant-line"></div>
+        </div>
+        <div class="participant" style="--participant-bg: #00a4ef; --participant-text: #fff;">
+            <div class="participant-icon">🤖</div>
+            <div class="participant-label">agent:gatekeeper</div>
+            <div class="participant-line"></div>
+        </div>
+        <div class="participant" style="--participant-bg: #ff9900; --participant-text: #000;">
+            <div class="participant-icon">λ</div>
+            <div class="participant-label">lambda:actionGroupFoo</div>
+            <div class="participant-line"></div>
+        </div>
+            </div>
+            <div class="messages">
+                
+            <div class="message self-message " style="--start-col: 1;">
+                <div class="message-content">
+                    <div class="message-label">
+                        <span class="operation">InvokeLambda</span>
+                        
+                        <span class="latency"></span>
+                    </div>
+                    <div class="self-arrow"></div>
+                </div>
+                
+            <details class="payload-details">
+                <summary>View Payloads</summary>
+                <div class="payload-container">
+                    
+                <div class="payload-item">
+                    <div class="payload-label">Request</div>
+                    <pre class="payload-content">{
+  &quot;Records&quot;: [
+    {
+      &quot;messageId&quot;: &quot;m-1&quot;,
+      &quot;body&quot;: {
+        &quot;request&quot;: {
+          &quot;userMessage&quot;: &quot;hello&quot;
+        }
+      }
+    }
+  ]
+}</pre>
+                </div>
+                <div class="payload-item">
+                    <div class="payload-label">Response</div>
+                    <pre class="payload-content">{
+  &quot;status&quot;: &quot;accepted&quot;
+}</pre>
+                </div>
+                </div>
+            </details>
+            </div>
+            <div class="message left " style="--start-col: 1; --span-width: 2;">
+                <div class="message-content">
+                    <div class="message-label">
+                        <span class="operation">InvokeAgent</span>
+                        
+                        <span class="latency"></span>
+                    </div>
+                    <div class="arrow left"></div>
+                </div>
+                
+            <details class="payload-details">
+                <summary>View Payloads</summary>
+                <div class="payload-container">
+                    
+                <div class="payload-item">
+                    <div class="payload-label">Request</div>
+                    <pre class="payload-content">{
+  &quot;inputText&quot;: &quot;hello&quot;,
+  &quot;enableTrace&quot;: true
+}</pre>
+                </div>
+                <div class="payload-item">
+                    <div class="payload-label">Response</div>
+                    <pre class="payload-content">{
+  &quot;finalText&quot;: &quot;ok&quot;
+}</pre>
+                </div>
+                </div>
+            </details>
+            </div>
+            <div class="message left " style="--start-col: 2; --span-width: 2;">
+                <div class="message-content">
+                    <div class="message-label">
+                        <span class="operation">InvokeModel</span>
+                        
+                        <span class="latency"></span>
+                    </div>
+                    <div class="arrow left"></div>
+                </div>
+                
+            <details class="payload-details">
+                <summary>View Payloads</summary>
+                <div class="payload-container">
+                    
+                <div class="payload-item">
+                    <div class="payload-label">Request</div>
+                    <pre class="payload-content">{
+  &quot;modelId&quot;: &quot;claude&quot;,
+  &quot;prompt&quot;: &quot;...&quot;
+}</pre>
+                </div>
+                <div class="payload-item">
+                    <div class="payload-label">Response</div>
+                    <pre class="payload-content">{
+  &quot;text&quot;: &quot;result&quot;
+}</pre>
+                </div>
+                </div>
+            </details>
+            </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="stats">
+        <div><span class="stat-label">Spans:</span> <span class="stat-value">3</span></div>
+        <div><span class="stat-label">Participants:</span> <span class="stat-value">3</span></div>
+        <div><span class="stat-label">Errors:</span> <span class="stat-value">0</span></div>
+    </div>
+    
+    <script>
+        let currentZoom = 1;
+        
+        function zoom(factor) {
+            currentZoom *= factor;
+            currentZoom = Math.max(0.5, Math.min(2, currentZoom));
+            document.getElementById('diagram').style.transform = `scale(${currentZoom})`;
+        }
+        
+        function resetZoom() {
+            currentZoom = 1;
+            document.getElementById('diagram').style.transform = 'scale(1)';
+        }
+        
+        function toggleTheme() {
+            const body = document.body;
+            const btn = document.querySelector('.theme-toggle');
+            if (body.getAttribute('data-theme') === 'dark') {
+                body.removeAttribute('data-theme');
+                btn.textContent = '🌙 Dark Mode';
+            } else {
+                body.setAttribute('data-theme', 'dark');
+                btn.textContent = '☀️ Light Mode';
+            }
+        }
+    </script>
+</body>
+</html>

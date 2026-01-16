@@ -1,0 +1,1642 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ITK Demo - Chat Request Flow</title>
+    <style>
+        :root {
+            --bg-color: #ffffff;
+            --text-color: #1f2937;
+            --border-color: #e5e7eb;
+            --panel-bg: #f9fafb;
+            --accent-color: #3b82f6;
+            --error-color: #ef4444;
+            --success-color: #10b981;
+            --muted-color: #6b7280;
+        }
+        
+        [data-theme="dark"] {
+            --bg-color: #1f2937;
+            --text-color: #f9fafb;
+            --border-color: #374151;
+            --panel-bg: #111827;
+            --accent-color: #60a5fa;
+            --error-color: #f87171;
+            --success-color: #34d399;
+            --muted-color: #9ca3af;
+        }
+        
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-color);
+            color: var(--text-color);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        
+        /* Header */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid var(--border-color);
+            background: var(--panel-bg);
+            flex-shrink: 0;
+        }
+        
+        .header h1 {
+            font-size: 1.25rem;
+            font-weight: 600;
+        }
+        
+        .header-controls {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+        }
+        
+        /* Search */
+        .search-container {
+            position: relative;
+        }
+        
+        .search-input {
+            padding: 0.5rem 2rem 0.5rem 0.75rem;
+            border: 1px solid var(--border-color);
+            border-radius: 0.375rem;
+            background: var(--bg-color);
+            color: var(--text-color);
+            width: 250px;
+            font-size: 0.875rem;
+        }
+        
+        .search-input:focus {
+            outline: none;
+            border-color: var(--accent-color);
+            box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+        }
+        
+        .search-shortcut {
+            position: absolute;
+            right: 0.5rem;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 0.75rem;
+            color: var(--muted-color);
+            background: var(--panel-bg);
+            padding: 0.125rem 0.25rem;
+            border-radius: 0.25rem;
+            border: 1px solid var(--border-color);
+        }
+        
+        /* Filters */
+        .filters {
+            display: flex;
+            gap: 0.5rem;
+        }
+        
+        .filter-btn {
+            padding: 0.375rem 0.75rem;
+            border: 1px solid var(--border-color);
+            border-radius: 0.375rem;
+            background: var(--bg-color);
+            color: var(--text-color);
+            font-size: 0.75rem;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        
+        .filter-btn:hover {
+            border-color: var(--accent-color);
+        }
+        
+        .filter-btn.active {
+            background: var(--accent-color);
+            color: white;
+            border-color: var(--accent-color);
+        }
+        
+        .theme-btn {
+            padding: 0.375rem 0.75rem;
+            border: 1px solid var(--border-color);
+            border-radius: 0.375rem;
+            background: var(--bg-color);
+            color: var(--text-color);
+            font-size: 0.875rem;
+            cursor: pointer;
+        }
+        
+        /* Main content */
+        .main-content {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+        
+        /* SVG container */
+        .svg-container {
+            flex: 1;
+            overflow: hidden;
+            background: var(--bg-color);
+            position: relative;
+        }
+        
+        .svg-container svg {
+            width: 100%;
+            height: 100%;
+            cursor: grab;
+        }
+        
+        .svg-container svg:active {
+            cursor: grabbing;
+        }
+        
+        /* SVG styles */
+        .lifeline {
+            opacity: 0.5;
+        }
+        
+        .participant-box {
+            filter: drop-shadow(0 1px 2px rgba(0,0,0,0.1));
+        }
+        
+        .participant-icon {
+            font-size: 1.25rem;
+        }
+        
+        .participant-label {
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+        
+        .message {
+            cursor: pointer;
+            color: var(--text-color);
+            transition: opacity 0.15s;
+        }
+        
+        .message:hover {
+            opacity: 0.8;
+        }
+        
+        .message.selected {
+            color: var(--accent-color);
+        }
+        
+        .message.dimmed {
+            opacity: 0.2;
+        }
+        
+        .message.highlighted {
+            color: var(--accent-color);
+        }
+        
+        .message.error {
+            color: var(--error-color);
+        }
+        
+        .message-label {
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+        
+        .message-latency {
+            font-size: 0.625rem;
+            fill: var(--muted-color);
+        }
+        
+        .retry-badge {
+            font-size: 0.625rem;
+            fill: #f59e0b;
+            font-weight: 600;
+        }
+        
+        .hidden {
+            display: none !important;
+        }
+        
+        /* Details panel */
+        .details-panel {
+            width: 400px;
+            border-left: 1px solid var(--border-color);
+            background: var(--panel-bg);
+            overflow-y: auto;
+            flex-shrink: 0;
+            transition: width 0.2s;
+        }
+        
+        .details-panel.collapsed {
+            width: 0;
+            border-left: none;
+        }
+        
+        .details-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid var(--border-color);
+            position: sticky;
+            top: 0;
+            background: var(--panel-bg);
+        }
+        
+        .details-title {
+            font-weight: 600;
+            font-size: 0.875rem;
+        }
+        
+        .details-close {
+            background: none;
+            border: none;
+            color: var(--muted-color);
+            cursor: pointer;
+            font-size: 1.25rem;
+            padding: 0.25rem;
+        }
+        
+        .details-content {
+            padding: 1rem;
+        }
+        
+        .detail-section {
+            margin-bottom: 1rem;
+        }
+        
+        .detail-label {
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--muted-color);
+            text-transform: uppercase;
+            margin-bottom: 0.25rem;
+        }
+        
+        .detail-value {
+            font-size: 0.875rem;
+        }
+        
+        .detail-value.error {
+            color: var(--error-color);
+        }
+        
+        .detail-value.success {
+            color: var(--success-color);
+        }
+        
+        .json-viewer {
+            background: var(--bg-color);
+            border: 1px solid var(--border-color);
+            border-radius: 0.375rem;
+            padding: 0.75rem;
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 0.75rem;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            word-break: break-word;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        
+        /* Stats bar */
+        .stats-bar {
+            display: flex;
+            gap: 1.5rem;
+            padding: 0.5rem 1rem;
+            border-top: 1px solid var(--border-color);
+            background: var(--panel-bg);
+            font-size: 0.75rem;
+            flex-shrink: 0;
+        }
+        
+        .stat {
+            display: flex;
+            gap: 0.25rem;
+        }
+        
+        .stat-label {
+            color: var(--muted-color);
+        }
+        
+        .stat-value {
+            font-weight: 600;
+        }
+        
+        /* Zoom controls */
+        .zoom-controls {
+            position: absolute;
+            bottom: 1rem;
+            left: 1rem;
+            display: flex;
+            gap: 0.25rem;
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 0.375rem;
+            padding: 0.25rem;
+        }
+        
+        .zoom-btn {
+            width: 2rem;
+            height: 2rem;
+            border: none;
+            background: transparent;
+            color: var(--text-color);
+            cursor: pointer;
+            border-radius: 0.25rem;
+            font-size: 1rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .zoom-btn:hover {
+            background: var(--border-color);
+        }
+        
+        /* Keyboard hint */
+        .keyboard-hint {
+            position: absolute;
+            bottom: 1rem;
+            right: 1rem;
+            font-size: 0.625rem;
+            color: var(--muted-color);
+            background: var(--panel-bg);
+            padding: 0.25rem 0.5rem;
+            border-radius: 0.25rem;
+            border: 1px solid var(--border-color);
+        }
+        
+        kbd {
+            background: var(--bg-color);
+            border: 1px solid var(--border-color);
+            border-radius: 0.25rem;
+            padding: 0 0.25rem;
+            font-family: inherit;
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <h1>ITK Demo - Chat Request Flow</h1>
+        <div class="header-controls">
+            <div class="search-container">
+                <input type="text" class="search-input" id="search" placeholder="Search spans...">
+                <span class="search-shortcut">/</span>
+            </div>
+            <div class="filters">
+                <button class="filter-btn" data-filter="errors" title="Show only errors">🔴 Errors</button>
+                <button class="filter-btn" data-filter="retries" title="Show only retries">🔄 Retries</button>
+            </div>
+            <button class="theme-btn" onclick="toggleTheme()">🌙</button>
+        </div>
+    </header>
+    
+    <main class="main-content">
+        <div class="svg-container">
+            <svg id="diagram" viewBox="0 0 1280 660" preserveAspectRatio="xMidYMid meet">
+                <defs>
+                    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+                        <polygon points="0 0, 10 3.5, 0 7" fill="currentColor"/>
+                    </marker>
+                </defs>
+                <g class="svg-pan-zoom_viewport">
+                    <g class="participants">
+                        
+    <g class="participant" data-participant="entrypoint_api_gateway">
+        <!-- Lifeline -->
+        <line x1="115" y1="80" x2="115" y2="640"
+              class="lifeline" stroke="#0d9668" stroke-width="2" stroke-dasharray="5,5"/>
+        <!-- Header box -->
+        <rect x="50" y="10" width="130" height="60"
+              rx="8" fill="#10b981" class="participant-box"/>
+        <!-- Icon -->
+        <text x="115" y="35" text-anchor="middle" class="participant-icon" fill="#fff">▶</text>
+        <!-- Label -->
+        <text x="115" y="60" text-anchor="middle" class="participant-label" fill="#fff">entrypoint:api-gateway</text>
+    </g>
+
+    <g class="participant" data-participant="lambda_chat_handler">
+        <!-- Lifeline -->
+        <line x1="315" y1="80" x2="315" y2="640"
+              class="lifeline" stroke="#cc7a00" stroke-width="2" stroke-dasharray="5,5"/>
+        <!-- Header box -->
+        <rect x="250" y="10" width="130" height="60"
+              rx="8" fill="#ff9900" class="participant-box"/>
+        <!-- Icon -->
+        <text x="315" y="35" text-anchor="middle" class="participant-icon" fill="#000">λ</text>
+        <!-- Label -->
+        <text x="315" y="60" text-anchor="middle" class="participant-label" fill="#000">lambda:chat-handler</text>
+    </g>
+
+    <g class="participant" data-participant="agent_supervisor">
+        <!-- Lifeline -->
+        <line x1="515" y1="80" x2="515" y2="640"
+              class="lifeline" stroke="#0082c4" stroke-width="2" stroke-dasharray="5,5"/>
+        <!-- Header box -->
+        <rect x="450" y="10" width="130" height="60"
+              rx="8" fill="#00a4ef" class="participant-box"/>
+        <!-- Icon -->
+        <text x="515" y="35" text-anchor="middle" class="participant-icon" fill="#fff">🤖</text>
+        <!-- Label -->
+        <text x="515" y="60" text-anchor="middle" class="participant-label" fill="#fff">agent:supervisor</text>
+    </g>
+
+    <g class="participant" data-participant="model_claude_3_sonnet">
+        <!-- Lifeline -->
+        <line x1="715" y1="80" x2="715" y2="640"
+              class="lifeline" stroke="#6d43d8" stroke-width="2" stroke-dasharray="5,5"/>
+        <!-- Header box -->
+        <rect x="650" y="10" width="130" height="60"
+              rx="8" fill="#8b5cf6" class="participant-box"/>
+        <!-- Icon -->
+        <text x="715" y="35" text-anchor="middle" class="participant-icon" fill="#fff">🧠</text>
+        <!-- Label -->
+        <text x="715" y="60" text-anchor="middle" class="participant-label" fill="#fff">model:claude-3-sonnet</text>
+    </g>
+
+    <g class="participant" data-participant="agent_gatekeeper">
+        <!-- Lifeline -->
+        <line x1="915" y1="80" x2="915" y2="640"
+              class="lifeline" stroke="#0082c4" stroke-width="2" stroke-dasharray="5,5"/>
+        <!-- Header box -->
+        <rect x="850" y="10" width="130" height="60"
+              rx="8" fill="#00a4ef" class="participant-box"/>
+        <!-- Icon -->
+        <text x="915" y="35" text-anchor="middle" class="participant-icon" fill="#fff">🤖</text>
+        <!-- Label -->
+        <text x="915" y="60" text-anchor="middle" class="participant-label" fill="#fff">agent:gatekeeper</text>
+    </g>
+
+    <g class="participant" data-participant="dynamodb_sessions">
+        <!-- Lifeline -->
+        <line x1="1115" y1="80" x2="1115" y2="640"
+              class="lifeline" stroke="#2563eb" stroke-width="2" stroke-dasharray="5,5"/>
+        <!-- Header box -->
+        <rect x="1050" y="10" width="130" height="60"
+              rx="8" fill="#3b82f6" class="participant-box"/>
+        <!-- Icon -->
+        <text x="1115" y="35" text-anchor="middle" class="participant-icon" fill="#fff">📊</text>
+        <!-- Label -->
+        <text x="1115" y="60" text-anchor="middle" class="participant-label" fill="#fff">dynamodb:sessions</text>
+    </g>
+                    </g>
+                    <g class="messages">
+                        
+        <g class="message self-message " data-span-id="req-001" data-span='{&quot;span_id&quot;: &quot;req-001&quot;, &quot;operation&quot;: &quot;POST /chat&quot;, &quot;component&quot;: &quot;entrypoint:api-gateway&quot;, &quot;latency_ms&quot;: 2500.0, &quot;attempt&quot;: 1, &quot;has_error&quot;: false, &quot;request&quot;: {&quot;path&quot;: &quot;/chat&quot;, &quot;body&quot;: {&quot;message&quot;: &quot;Hello&quot;}}, &quot;response&quot;: null, &quot;error&quot;: null}'>
+            <path d="M 115 120 C 155 120, 155 150, 115 150"
+                  fill="none" stroke="currentColor" stroke-width="2" marker-end="url(#arrowhead)"/>
+            <text x="165" y="135" class="message-label">POST /chat</text>
+            <text x="165" y="150" class="message-latency">2500ms</text>
+            
+        </g>
+
+        <g class="message " data-span-id="lmb-001" data-span='{&quot;span_id&quot;: &quot;lmb-001&quot;, &quot;operation&quot;: &quot;invoke&quot;, &quot;component&quot;: &quot;lambda:chat-handler&quot;, &quot;latency_ms&quot;: 2400.0, &quot;attempt&quot;: 1, &quot;has_error&quot;: false, &quot;request&quot;: {&quot;input&quot;: &quot;Hello&quot;}, &quot;response&quot;: null, &quot;error&quot;: null}'>
+            <line x1="315" y1="180" x2="125" y2="180"
+                  stroke="currentColor" stroke-width="2" marker-end="url(#arrowhead)"/>
+            <text x="215" y="172" text-anchor="middle" class="message-label">invoke</text>
+            <text x="215" y="198" text-anchor="middle" class="message-latency">2400ms</text>
+            
+        </g>
+
+        <g class="message " data-span-id="agn-001" data-span='{&quot;span_id&quot;: &quot;agn-001&quot;, &quot;operation&quot;: &quot;route_request&quot;, &quot;component&quot;: &quot;agent:supervisor&quot;, &quot;latency_ms&quot;: 100.0, &quot;attempt&quot;: 1, &quot;has_error&quot;: false, &quot;request&quot;: null, &quot;response&quot;: null, &quot;error&quot;: null}'>
+            <line x1="515" y1="240" x2="325" y2="240"
+                  stroke="currentColor" stroke-width="2" marker-end="url(#arrowhead)"/>
+            <text x="415" y="232" text-anchor="middle" class="message-label">route_request</text>
+            <text x="415" y="258" text-anchor="middle" class="message-latency">100ms</text>
+            
+        </g>
+
+        <g class="message " data-span-id="mdl-001" data-span='{&quot;span_id&quot;: &quot;mdl-001&quot;, &quot;operation&quot;: &quot;invoke_model&quot;, &quot;component&quot;: &quot;model:claude-3-sonnet&quot;, &quot;latency_ms&quot;: 1550.0, &quot;attempt&quot;: 1, &quot;has_error&quot;: false, &quot;request&quot;: {&quot;prompt&quot;: &quot;Classify intent&quot;}, &quot;response&quot;: {&quot;classification&quot;: &quot;greeting&quot;}, &quot;error&quot;: null}'>
+            <line x1="715" y1="300" x2="525" y2="300"
+                  stroke="currentColor" stroke-width="2" marker-end="url(#arrowhead)"/>
+            <text x="615" y="292" text-anchor="middle" class="message-label">invoke_model</text>
+            <text x="615" y="318" text-anchor="middle" class="message-latency">1550ms</text>
+            
+        </g>
+
+        <g class="message " data-span-id="agn-002" data-span='{&quot;span_id&quot;: &quot;agn-002&quot;, &quot;operation&quot;: &quot;validate&quot;, &quot;component&quot;: &quot;agent:gatekeeper&quot;, &quot;latency_ms&quot;: 50.0, &quot;attempt&quot;: 1, &quot;has_error&quot;: false, &quot;request&quot;: null, &quot;response&quot;: null, &quot;error&quot;: null}'>
+            <line x1="915" y1="360" x2="325" y2="360"
+                  stroke="currentColor" stroke-width="2" marker-end="url(#arrowhead)"/>
+            <text x="615" y="352" text-anchor="middle" class="message-label">validate</text>
+            <text x="615" y="378" text-anchor="middle" class="message-latency">50ms</text>
+            
+        </g>
+
+        <g class="message " data-span-id="mdl-002" data-span='{&quot;span_id&quot;: &quot;mdl-002&quot;, &quot;operation&quot;: &quot;invoke_model&quot;, &quot;component&quot;: &quot;model:claude-3-sonnet&quot;, &quot;latency_ms&quot;: 350.0, &quot;attempt&quot;: 1, &quot;has_error&quot;: false, &quot;request&quot;: {&quot;prompt&quot;: &quot;Generate response&quot;}, &quot;response&quot;: {&quot;text&quot;: &quot;Hi there! How can I help?&quot;}, &quot;error&quot;: null}'>
+            <line x1="715" y1="420" x2="905" y2="420"
+                  stroke="currentColor" stroke-width="2" marker-end="url(#arrowhead)"/>
+            <text x="815" y="412" text-anchor="middle" class="message-label">invoke_model</text>
+            <text x="815" y="438" text-anchor="middle" class="message-latency">350ms</text>
+            
+        </g>
+
+        <g class="message error" data-span-id="err-001" data-span='{&quot;span_id&quot;: &quot;err-001&quot;, &quot;operation&quot;: &quot;put_item&quot;, &quot;component&quot;: &quot;dynamodb:sessions&quot;, &quot;latency_ms&quot;: 60.0, &quot;attempt&quot;: 2, &quot;has_error&quot;: true, &quot;request&quot;: null, &quot;response&quot;: null, &quot;error&quot;: {&quot;code&quot;: &quot;ProvisionedThroughputExceeded&quot;, &quot;message&quot;: &quot;Rate exceeded&quot;}}'>
+            <line x1="1115" y1="480" x2="325" y2="480"
+                  stroke="currentColor" stroke-width="2" marker-end="url(#arrowhead)"/>
+            <text x="715" y="472" text-anchor="middle" class="message-label">put_item</text>
+            <text x="715" y="498" text-anchor="middle" class="message-latency">60ms</text>
+            <text x="1125" y="460" class="retry-badge">retry 2</text>
+        </g>
+
+        <g class="message " data-span-id="ok-001" data-span='{&quot;span_id&quot;: &quot;ok-001&quot;, &quot;operation&quot;: &quot;put_item&quot;, &quot;component&quot;: &quot;dynamodb:sessions&quot;, &quot;latency_ms&quot;: 20.0, &quot;attempt&quot;: 3, &quot;has_error&quot;: false, &quot;request&quot;: null, &quot;response&quot;: {&quot;status&quot;: &quot;ok&quot;}, &quot;error&quot;: null}'>
+            <line x1="1115" y1="540" x2="325" y2="540"
+                  stroke="currentColor" stroke-width="2" marker-end="url(#arrowhead)"/>
+            <text x="715" y="532" text-anchor="middle" class="message-label">put_item</text>
+            <text x="715" y="558" text-anchor="middle" class="message-latency">20ms</text>
+            <text x="1125" y="520" class="retry-badge">retry 3</text>
+        </g>
+                    </g>
+                </g>
+            </svg>
+            <div class="zoom-controls">
+                <button class="zoom-btn" onclick="panZoom.zoomIn()" title="Zoom in">+</button>
+                <button class="zoom-btn" onclick="panZoom.zoomOut()" title="Zoom out">−</button>
+                <button class="zoom-btn" onclick="panZoom.fit()" title="Fit to view">⊡</button>
+                <button class="zoom-btn" onclick="panZoom.reset()" title="Reset">↺</button>
+            </div>
+            <div class="keyboard-hint">
+                <kbd>/</kbd> search &nbsp; <kbd>Esc</kbd> clear &nbsp; <kbd>↑↓</kbd> navigate
+            </div>
+        </div>
+        
+        <aside class="details-panel collapsed" id="details-panel">
+            <div class="details-header">
+                <span class="details-title">Span Details</span>
+                <button class="details-close" onclick="closeDetails()">×</button>
+            </div>
+            <div class="details-content" id="details-content">
+                <!-- Populated by JS -->
+            </div>
+        </aside>
+    </main>
+    
+    <footer class="stats-bar">
+        <div class="stat">
+            <span class="stat-label">Spans:</span>
+            <span class="stat-value">8</span>
+        </div>
+        <div class="stat">
+            <span class="stat-label">Participants:</span>
+            <span class="stat-value">6</span>
+        </div>
+        <div class="stat">
+            <span class="stat-label">Errors:</span>
+            <span class="stat-value" style="color: var(--error-color)">1</span>
+        </div>
+        <div class="stat">
+            <span class="stat-label">Retries:</span>
+            <span class="stat-value" style="color: #f59e0b">2</span>
+        </div>
+    </footer>
+    
+    <script>
+    // Vendored svg-pan-zoom
+    /**
+ * svg-pan-zoom v3.6.1
+ * MIT License
+ * https://github.com/bumbu/svg-pan-zoom
+ * 
+ * Minified and vendored for ITK offline use.
+ * No CDN dependency - this file is included directly in generated HTML.
+ */
+(function(){function r(e,n,t){function o(i,f){if(!n[i]){if(!e[i]){var c="function"==typeof require&&require;if(!f&&c)return c(i,!0);if(u)return u(i,!0);var a=new Error("Cannot find module '"+i+"'");throw a.code="MODULE_NOT_FOUND",a}var p=n[i]={exports:{}};e[i][0].call(p.exports,function(r){var n=e[i][1][r];return o(n||r)},p,p.exports,r,e,n,t)}return n[i].exports}for(var u="function"==typeof require&&require,i=0;i<t.length;i++)o(t[i]);return o}return r})()({1:[function(require,module,exports){
+var SvgPanZoom = require('./svg-pan-zoom.js');
+
+// UMD export
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = SvgPanZoom;
+}
+// AMD
+else if (typeof define === 'function' && define.amd) {
+  define('svg-pan-zoom', function() { return SvgPanZoom; });
+}
+// Browser global
+else if (typeof window !== 'undefined') {
+  window.svgPanZoom = SvgPanZoom;
+}
+},{"./svg-pan-zoom.js":2}],2:[function(require,module,exports){
+/**
+ * svg-pan-zoom library implementation
+ * Simplified inline version for ITK
+ */
+
+var SvgPanZoom = (function() {
+  'use strict';
+
+  var defaultOptions = {
+    viewportSelector: '.svg-pan-zoom_viewport',
+    panEnabled: true,
+    controlIconsEnabled: false,
+    zoomEnabled: true,
+    dblClickZoomEnabled: true,
+    mouseWheelZoomEnabled: true,
+    preventMouseEventsDefault: true,
+    zoomScaleSensitivity: 0.1,
+    minZoom: 0.5,
+    maxZoom: 10,
+    fit: true,
+    contain: false,
+    center: true,
+    refreshRate: 'auto',
+    beforeZoom: null,
+    onZoom: null,
+    beforePan: null,
+    onPan: null,
+    onUpdatedCTM: null,
+    eventsListenerElement: null,
+    onTouchStart: null,
+    onTouchEnd: null,
+    onTouchMove: null
+  };
+
+  function SvgPanZoomInstance(svg, options) {
+    this.svg = svg;
+    this.options = Object.assign({}, defaultOptions, options);
+    this.state = {
+      zoom: 1,
+      pan: { x: 0, y: 0 }
+    };
+    this.viewport = null;
+    this.init();
+  }
+
+  SvgPanZoomInstance.prototype.init = function() {
+    var viewport = this.svg.querySelector(this.options.viewportSelector);
+    if (!viewport) {
+      // Create viewport wrapper
+      viewport = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      viewport.setAttribute('class', 'svg-pan-zoom_viewport');
+      
+      // Move all children into viewport
+      while (this.svg.firstChild) {
+        viewport.appendChild(this.svg.firstChild);
+      }
+      this.svg.appendChild(viewport);
+    }
+    this.viewport = viewport;
+    
+    // Set up event listeners
+    this.setupEventListeners();
+    
+    // Initial fit if requested
+    if (this.options.fit) {
+      this.fit();
+    }
+  };
+
+  SvgPanZoomInstance.prototype.setupEventListeners = function() {
+    var self = this;
+    var svg = this.svg;
+    var eventsElement = this.options.eventsListenerElement || svg;
+    
+    // Mouse wheel zoom
+    if (this.options.mouseWheelZoomEnabled) {
+      eventsElement.addEventListener('wheel', function(e) {
+        e.preventDefault();
+        var delta = e.deltaY > 0 ? -1 : 1;
+        var zoomFactor = 1 + (self.options.zoomScaleSensitivity * delta);
+        
+        // Get mouse position relative to SVG
+        var point = self.getEventPoint(e);
+        self.zoomAtPoint(zoomFactor, point);
+      }, { passive: false });
+    }
+    
+    // Pan with mouse drag
+    if (this.options.panEnabled) {
+      var isPanning = false;
+      var startPoint = null;
+      var startPan = null;
+      
+      eventsElement.addEventListener('mousedown', function(e) {
+        if (e.button === 0) { // Left click
+          isPanning = true;
+          startPoint = self.getEventPoint(e);
+          startPan = { x: self.state.pan.x, y: self.state.pan.y };
+          e.preventDefault();
+        }
+      });
+      
+      document.addEventListener('mousemove', function(e) {
+        if (isPanning) {
+          var point = self.getEventPoint(e);
+          var dx = point.x - startPoint.x;
+          var dy = point.y - startPoint.y;
+          self.pan(startPan.x + dx, startPan.y + dy);
+        }
+      });
+      
+      document.addEventListener('mouseup', function() {
+        isPanning = false;
+      });
+    }
+    
+    // Double click zoom
+    if (this.options.dblClickZoomEnabled) {
+      eventsElement.addEventListener('dblclick', function(e) {
+        var point = self.getEventPoint(e);
+        self.zoomAtPoint(2, point);
+      });
+    }
+  };
+
+  SvgPanZoomInstance.prototype.getEventPoint = function(e) {
+    var rect = this.svg.getBoundingClientRect();
+    return {
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top
+    };
+  };
+
+  SvgPanZoomInstance.prototype.updateTransform = function() {
+    var transform = 'translate(' + this.state.pan.x + ',' + this.state.pan.y + ') scale(' + this.state.zoom + ')';
+    this.viewport.setAttribute('transform', transform);
+    
+    if (this.options.onUpdatedCTM) {
+      this.options.onUpdatedCTM(this.state);
+    }
+  };
+
+  SvgPanZoomInstance.prototype.zoom = function(scale) {
+    var newZoom = this.state.zoom * scale;
+    newZoom = Math.max(this.options.minZoom, Math.min(this.options.maxZoom, newZoom));
+    
+    if (this.options.beforeZoom) {
+      var shouldZoom = this.options.beforeZoom(this.state.zoom, newZoom);
+      if (shouldZoom === false) return;
+    }
+    
+    this.state.zoom = newZoom;
+    this.updateTransform();
+    
+    if (this.options.onZoom) {
+      this.options.onZoom(newZoom);
+    }
+  };
+
+  SvgPanZoomInstance.prototype.zoomAtPoint = function(scale, point) {
+    var oldZoom = this.state.zoom;
+    var newZoom = oldZoom * scale;
+    newZoom = Math.max(this.options.minZoom, Math.min(this.options.maxZoom, newZoom));
+    
+    if (this.options.beforeZoom) {
+      var shouldZoom = this.options.beforeZoom(oldZoom, newZoom);
+      if (shouldZoom === false) return;
+    }
+    
+    // Adjust pan to zoom at point
+    var zoomRatio = newZoom / oldZoom;
+    this.state.pan.x = point.x - (point.x - this.state.pan.x) * zoomRatio;
+    this.state.pan.y = point.y - (point.y - this.state.pan.y) * zoomRatio;
+    this.state.zoom = newZoom;
+    
+    this.updateTransform();
+    
+    if (this.options.onZoom) {
+      this.options.onZoom(newZoom);
+    }
+  };
+
+  SvgPanZoomInstance.prototype.zoomIn = function() {
+    this.zoom(1 + this.options.zoomScaleSensitivity);
+  };
+
+  SvgPanZoomInstance.prototype.zoomOut = function() {
+    this.zoom(1 - this.options.zoomScaleSensitivity);
+  };
+
+  SvgPanZoomInstance.prototype.pan = function(x, y) {
+    if (this.options.beforePan) {
+      var shouldPan = this.options.beforePan(this.state.pan, { x: x, y: y });
+      if (shouldPan === false) return;
+    }
+    
+    this.state.pan.x = x;
+    this.state.pan.y = y;
+    this.updateTransform();
+    
+    if (this.options.onPan) {
+      this.options.onPan(this.state.pan);
+    }
+  };
+
+  SvgPanZoomInstance.prototype.panBy = function(dx, dy) {
+    this.pan(this.state.pan.x + dx, this.state.pan.y + dy);
+  };
+
+  SvgPanZoomInstance.prototype.fit = function() {
+    var bbox = this.viewport.getBBox();
+    var svgRect = this.svg.getBoundingClientRect();
+    
+    var scaleX = svgRect.width / bbox.width;
+    var scaleY = svgRect.height / bbox.height;
+    var scale = Math.min(scaleX, scaleY) * 0.95; // 5% padding
+    
+    this.state.zoom = scale;
+    this.state.pan.x = (svgRect.width - bbox.width * scale) / 2 - bbox.x * scale;
+    this.state.pan.y = (svgRect.height - bbox.height * scale) / 2 - bbox.y * scale;
+    
+    this.updateTransform();
+  };
+
+  SvgPanZoomInstance.prototype.center = function() {
+    this.fit();
+  };
+
+  SvgPanZoomInstance.prototype.reset = function() {
+    this.state.zoom = 1;
+    this.state.pan = { x: 0, y: 0 };
+    this.updateTransform();
+  };
+
+  SvgPanZoomInstance.prototype.getZoom = function() {
+    return this.state.zoom;
+  };
+
+  SvgPanZoomInstance.prototype.getPan = function() {
+    return { x: this.state.pan.x, y: this.state.pan.y };
+  };
+
+  SvgPanZoomInstance.prototype.destroy = function() {
+    // Clean up would go here
+  };
+
+  // Factory function
+  function svgPanZoom(elementOrSelector, options) {
+    var svg;
+    if (typeof elementOrSelector === 'string') {
+      svg = document.querySelector(elementOrSelector);
+    } else {
+      svg = elementOrSelector;
+    }
+    
+    if (!svg) {
+      throw new Error('svg-pan-zoom: SVG element not found');
+    }
+    
+    return new SvgPanZoomInstance(svg, options);
+  }
+
+  return svgPanZoom;
+})();
+
+module.exports = SvgPanZoom;
+},{}]},{},[1]);
+
+    </script>
+    
+    <script>
+    // Vendored Fuse.js
+    /**
+ * Fuse.js v7.0.0 - Lightweight fuzzy-search library
+ * MIT License
+ * https://github.com/krisk/Fuse
+ * 
+ * Simplified and vendored for ITK offline use.
+ * Provides fuzzy search for span filtering.
+ */
+(function(global, factory) {
+  typeof exports === 'object' && typeof module !== 'undefined' ? module.exports = factory() :
+  typeof define === 'function' && define.amd ? define(factory) :
+  (global = typeof globalThis !== 'undefined' ? globalThis : global || self, global.Fuse = factory());
+})(this, (function() {
+  'use strict';
+
+  function isArray(value) {
+    return !Array.isArray
+      ? Object.prototype.toString.call(value) === '[object Array]'
+      : Array.isArray(value);
+  }
+
+  function isString(value) {
+    return typeof value === 'string';
+  }
+
+  function isNumber(value) {
+    return typeof value === 'number';
+  }
+
+  function isBoolean(value) {
+    return value === true || value === false;
+  }
+
+  function isObject(value) {
+    return typeof value === 'object' && value !== null && !isArray(value);
+  }
+
+  function isDefined(value) {
+    return value !== undefined && value !== null;
+  }
+
+  function isBlank(value) {
+    return !value || !value.trim().length;
+  }
+
+  const INFINITY = Infinity;
+
+  const Config = {
+    isCaseSensitive: false,
+    includeScore: false,
+    keys: [],
+    shouldSort: true,
+    sortFn: (a, b) => a.score === b.score ? (a.idx < b.idx ? -1 : 1) : a.score < b.score ? -1 : 1,
+    includeMatches: false,
+    findAllMatches: false,
+    minMatchCharLength: 1,
+    location: 0,
+    threshold: 0.6,
+    distance: 100,
+    useExtendedSearch: false,
+    getFn: get,
+    ignoreLocation: false,
+    ignoreFieldNorm: false,
+    fieldNormWeight: 1
+  };
+
+  function get(obj, path) {
+    let list = [];
+    let arr = false;
+
+    const deepGet = (obj, path, index) => {
+      if (!isDefined(obj)) return;
+      if (!path[index]) {
+        list.push(obj);
+      } else {
+        let key = path[index];
+        const value = obj[key];
+        if (!isDefined(value)) return;
+        if (index === path.length - 1 && (isString(value) || isNumber(value) || isBoolean(value))) {
+          list.push(String(value));
+        } else if (isArray(value)) {
+          arr = true;
+          for (let i = 0; i < value.length; i++) {
+            deepGet(value[i], path, index + 1);
+          }
+        } else if (isObject(value)) {
+          deepGet(value, path, index + 1);
+        }
+      }
+    };
+
+    deepGet(obj, isString(path) ? path.split('.') : path, 0);
+    return arr ? list : list[0];
+  }
+
+  function createIndex(keys, docs, { getFn = Config.getFn, fieldNormWeight = Config.fieldNormWeight } = {}) {
+    const myIndex = { keys, docs: [], records: [] };
+    
+    docs.forEach((doc, docIndex) => {
+      const record = { i: docIndex, $: {} };
+      
+      keys.forEach((key, keyIndex) => {
+        let value = isString(key) ? getFn(doc, key) : getFn(doc, key.name);
+        if (!isDefined(value)) return;
+        if (isArray(value)) {
+          record.$[keyIndex] = value.map(v => ({ v, n: norm(v, fieldNormWeight) }));
+        } else {
+          record.$[keyIndex] = { v: value, n: norm(value, fieldNormWeight) };
+        }
+      });
+      
+      myIndex.records.push(record);
+    });
+    
+    return myIndex;
+  }
+
+  function norm(value, fieldNormWeight) {
+    if (!value) return 1;
+    const len = value.length;
+    const norm = 1 / Math.pow(len, 0.5 * fieldNormWeight);
+    return norm;
+  }
+
+  function computeScore(pattern, { currentLocation = 0, expectedLocation = 0, distance = Config.distance, ignoreLocation = Config.ignoreLocation } = {}) {
+    const accuracy = Math.abs(expectedLocation - currentLocation);
+    if (ignoreLocation) return accuracy ? 1 : 0;
+    return accuracy / distance;
+  }
+
+  function search(text, pattern, patternAlphabet, { location = Config.location, distance = Config.distance, threshold = Config.threshold, findAllMatches = Config.findAllMatches, minMatchCharLength = Config.minMatchCharLength, includeMatches = Config.includeMatches, ignoreLocation = Config.ignoreLocation } = {}) {
+    if (pattern.length > 32) {
+      throw new Error('Pattern length exceeds max of 32');
+    }
+    
+    const patternLen = pattern.length;
+    const textLen = text.length;
+    const expectedLocation = Math.max(0, Math.min(location, textLen));
+    let currentThreshold = threshold;
+    let bestLocation = expectedLocation;
+    const matchMask = [];
+    
+    if (includeMatches) {
+      for (let i = 0; i < textLen; i++) matchMask[i] = 0;
+    }
+    
+    let index;
+    while ((index = text.indexOf(pattern, bestLocation)) > -1) {
+      let score = computeScore(pattern, { currentLocation: index, expectedLocation, distance, ignoreLocation });
+      currentThreshold = Math.min(score, currentThreshold);
+      bestLocation = index + patternLen;
+      if (includeMatches) {
+        for (let i = 0; i < patternLen; i++) {
+          matchMask[index + i] = 1;
+        }
+      }
+    }
+    
+    bestLocation = -1;
+    let lastBitArr = [];
+    let finalScore = 1;
+    let binMax = patternLen + textLen;
+    const mask = 1 << (patternLen - 1);
+    
+    for (let i = 0; i < patternLen; i++) {
+      let binMin = 0;
+      let binMid = binMax;
+      
+      while (binMin < binMid) {
+        const score = computeScore(pattern, { currentLocation: expectedLocation + binMid, expectedLocation, distance, ignoreLocation });
+        if (score <= currentThreshold) {
+          binMin = binMid;
+        } else {
+          binMax = binMid;
+        }
+        binMid = Math.floor((binMax - binMin) / 2 + binMin);
+      }
+      
+      binMax = binMid;
+      let start = Math.max(1, expectedLocation - binMid + 1);
+      let finish = findAllMatches ? textLen : Math.min(expectedLocation + binMid, textLen) + patternLen;
+      let bitArr = Array(finish + 2);
+      bitArr[finish + 1] = (1 << i) - 1;
+      
+      for (let j = finish; j >= start; j--) {
+        let currentLocation = j - 1;
+        let charMatch = patternAlphabet[text.charAt(currentLocation)];
+        
+        if (charMatch) {
+          if (includeMatches) matchMask[currentLocation] = 1;
+        }
+        
+        bitArr[j] = ((bitArr[j + 1] << 1) | 1) & charMatch;
+        if (i) {
+          bitArr[j] |= (((lastBitArr[j + 1] | lastBitArr[j]) << 1) | 1) | lastBitArr[j + 1];
+        }
+        
+        if (bitArr[j] & mask) {
+          finalScore = computeScore(pattern, { currentLocation, expectedLocation, distance, ignoreLocation });
+          if (finalScore <= currentThreshold) {
+            currentThreshold = finalScore;
+            bestLocation = currentLocation;
+            if (bestLocation <= expectedLocation) break;
+            start = Math.max(1, 2 * expectedLocation - bestLocation);
+          }
+        }
+      }
+      
+      const score = computeScore(pattern, { currentLocation: expectedLocation + i + 1, expectedLocation, distance, ignoreLocation });
+      if (score > currentThreshold) break;
+      lastBitArr = bitArr;
+    }
+    
+    const result = { isMatch: bestLocation >= 0, score: Math.max(0.001, finalScore) };
+    if (includeMatches) {
+      result.indices = convertMaskToIndices(matchMask, minMatchCharLength);
+    }
+    
+    return result;
+  }
+
+  function convertMaskToIndices(matchMask = [], minMatchCharLength = Config.minMatchCharLength) {
+    const indices = [];
+    let start = -1;
+    let end = -1;
+    let i = 0;
+    
+    for (let len = matchMask.length; i < len; i++) {
+      let match = matchMask[i];
+      if (match && start === -1) {
+        start = i;
+      } else if (!match && start !== -1) {
+        end = i - 1;
+        if (end - start + 1 >= minMatchCharLength) {
+          indices.push([start, end]);
+        }
+        start = -1;
+      }
+    }
+    
+    if (matchMask[i - 1] && i - start >= minMatchCharLength) {
+      indices.push([start, i - 1]);
+    }
+    
+    return indices;
+  }
+
+  function createPatternAlphabet(pattern) {
+    let mask = {};
+    for (let i = 0; i < pattern.length; i++) {
+      const char = pattern.charAt(i);
+      mask[char] = (mask[char] || 0) | (1 << (pattern.length - i - 1));
+    }
+    return mask;
+  }
+
+  class BitapSearch {
+    constructor(pattern, { location = Config.location, threshold = Config.threshold, distance = Config.distance, includeMatches = Config.includeMatches, findAllMatches = Config.findAllMatches, minMatchCharLength = Config.minMatchCharLength, isCaseSensitive = Config.isCaseSensitive, ignoreLocation = Config.ignoreLocation } = {}) {
+      this.options = { location, threshold, distance, includeMatches, findAllMatches, minMatchCharLength, isCaseSensitive, ignoreLocation };
+      this.pattern = isCaseSensitive ? pattern : pattern.toLowerCase();
+      this.chunks = [];
+      
+      if (!this.pattern.length) return;
+      
+      const addChunk = (pattern, startIndex) => {
+        this.chunks.push({ pattern, alphabet: createPatternAlphabet(pattern), startIndex });
+      };
+      
+      const len = this.pattern.length;
+      if (len > 32) {
+        let i = 0;
+        const remainder = len % 32;
+        const end = len - remainder;
+        while (i < end) {
+          addChunk(this.pattern.substr(i, 32), i);
+          i += 32;
+        }
+        if (remainder) {
+          addChunk(this.pattern.substr(end), i);
+        }
+      } else {
+        addChunk(this.pattern, 0);
+      }
+    }
+
+    searchIn(text) {
+      const { isCaseSensitive, includeMatches } = this.options;
+      if (!isCaseSensitive) text = text.toLowerCase();
+      
+      if (this.pattern === text) {
+        let result = { isMatch: true, score: 0 };
+        if (includeMatches) result.indices = [[0, text.length - 1]];
+        return result;
+      }
+      
+      const { location, distance, threshold, findAllMatches, minMatchCharLength, ignoreLocation } = this.options;
+      let allIndices = [];
+      let totalScore = 0;
+      let hasMatches = false;
+      
+      this.chunks.forEach(({ pattern, alphabet, startIndex }) => {
+        const { isMatch, score, indices } = search(text, pattern, alphabet, { location: location + startIndex, distance, threshold, findAllMatches, minMatchCharLength, includeMatches, ignoreLocation });
+        
+        if (isMatch) hasMatches = true;
+        totalScore += score;
+        if (isMatch && indices) {
+          allIndices = [...allIndices, ...indices];
+        }
+      });
+      
+      let result = { isMatch: hasMatches, score: hasMatches ? totalScore / this.chunks.length : 1 };
+      if (hasMatches && includeMatches) {
+        result.indices = allIndices;
+      }
+      
+      return result;
+    }
+  }
+
+  class Fuse {
+    constructor(docs = [], options = {}, index) {
+      this.options = { ...Config, ...options };
+      this._keyStore = new KeyStore(this.options.keys);
+      this.setCollection(docs, index);
+    }
+
+    setCollection(docs, index) {
+      this._docs = docs;
+      if (index && !(index.keys && index.records)) {
+        throw new Error('Incorrect index format');
+      }
+      this._myIndex = index || createIndex(this._keyStore.keys(), this._docs, { getFn: this.options.getFn, fieldNormWeight: this.options.fieldNormWeight });
+    }
+
+    add(doc) {
+      if (!isDefined(doc)) return;
+      this._docs.push(doc);
+      this._myIndex.records.push(createRecord(doc, this._keyStore.keys(), this.options.getFn, this.options.fieldNormWeight));
+    }
+
+    search(query, { limit = -1 } = {}) {
+      const { includeMatches, includeScore, shouldSort, sortFn, ignoreFieldNorm } = this.options;
+      
+      let results = isString(query)
+        ? isString(this._keyStore.keys()[0])
+          ? this._searchStringList(query)
+          : this._searchObjectList(query)
+        : this._searchLogical(query);
+      
+      computeScore$1(results, { ignoreFieldNorm });
+      
+      if (shouldSort) results.sort(sortFn);
+      if (isNumber(limit) && limit > -1) results = results.slice(0, limit);
+      
+      return format(results, this._docs, { includeMatches, includeScore });
+    }
+
+    _searchStringList(query) {
+      const searcher = new BitapSearch(query, this.options);
+      const records = this._myIndex.records;
+      const results = [];
+      
+      records.forEach(({ v, i, n }, idx) => {
+        if (!isDefined(v)) return;
+        const { isMatch, score, indices } = searcher.searchIn(v);
+        if (isMatch) {
+          results.push({ item: v, idx, matches: [{ score, value: v, norm: n, indices }] });
+        }
+      });
+      
+      return results;
+    }
+
+    _searchObjectList(query) {
+      const searcher = new BitapSearch(query, this.options);
+      const records = this._myIndex.records;
+      const results = [];
+      
+      records.forEach(({ $: record, i: idx }) => {
+        if (!isDefined(record)) return;
+        
+        let matches = [];
+        this._keyStore.keys().forEach((key, keyIndex) => {
+          const value = record[keyIndex];
+          if (!isDefined(value)) return;
+          
+          const processValue = (v) => {
+            const { isMatch, score, indices } = searcher.searchIn(v.v);
+            if (isMatch) {
+              matches.push({ key: isString(key) ? key : key.name, score, value: v.v, norm: v.n, indices });
+            }
+          };
+          
+          if (isArray(value)) {
+            value.forEach(processValue);
+          } else {
+            processValue(value);
+          }
+        });
+        
+        if (matches.length) {
+          results.push({ idx, item: this._docs[idx], matches });
+        }
+      });
+      
+      return results;
+    }
+
+    _searchLogical(query) {
+      return [];
+    }
+  }
+
+  function format(results, docs, { includeMatches = Config.includeMatches, includeScore = Config.includeScore } = {}) {
+    const transformers = [];
+    if (includeMatches) transformers.push(transformMatches);
+    if (includeScore) transformers.push(transformScore);
+    
+    return results.map(result => {
+      const { idx } = result;
+      const data = { item: docs[idx], refIndex: idx };
+      if (transformers.length) {
+        transformers.forEach(t => t(result, data));
+      }
+      return data;
+    });
+  }
+
+  function transformMatches(result, data) {
+    const matches = result.matches;
+    data.matches = [];
+    if (!isDefined(matches)) return;
+    
+    matches.forEach(match => {
+      if (!isDefined(match.indices) || !match.indices.length) return;
+      const obj = { indices: match.indices, value: match.value };
+      if (isDefined(match.key)) obj.key = match.key;
+      data.matches.push(obj);
+    });
+  }
+
+  function transformScore(result, data) {
+    data.score = result.score;
+  }
+
+  function computeScore$1(results, { ignoreFieldNorm = Config.ignoreFieldNorm }) {
+    results.forEach(result => {
+      let totalScore = 1;
+      result.matches.forEach(({ score, norm }) => {
+        const normWeight = ignoreFieldNorm ? 1 : norm;
+        totalScore *= Math.pow(score === 0 ? 0.001 : score, normWeight);
+      });
+      result.score = totalScore;
+    });
+  }
+
+  class KeyStore {
+    constructor(keys) {
+      this._keys = keys.map(key => {
+        if (isString(key)) return { name: key, weight: 1 };
+        return { name: key.name, weight: key.weight || 1 };
+      });
+    }
+
+    keys() {
+      return this._keys;
+    }
+
+    toJSON() {
+      return JSON.stringify(this._keys);
+    }
+  }
+
+  function createRecord(doc, keys, getFn, fieldNormWeight) {
+    const record = { $: {} };
+    keys.forEach((key, keyIndex) => {
+      let value = getFn(doc, isString(key) ? key : key.name);
+      if (!isDefined(value)) return;
+      if (isArray(value)) {
+        record.$[keyIndex] = value.map(v => ({ v, n: norm(v, fieldNormWeight) }));
+      } else {
+        record.$[keyIndex] = { v: value, n: norm(value, fieldNormWeight) };
+      }
+    });
+    return record;
+  }
+
+  Fuse.version = '7.0.0';
+  Fuse.createIndex = createIndex;
+  Fuse.config = Config;
+
+  return Fuse;
+}));
+
+    </script>
+    
+    <script>
+    // Initialize
+    const spansData = [{"span_id": "req-001", "operation": "POST /chat", "component": "entrypoint:api-gateway", "latency_ms": 2500.0, "attempt": 1, "has_error": false}, {"span_id": "lmb-001", "operation": "invoke", "component": "lambda:chat-handler", "latency_ms": 2400.0, "attempt": 1, "has_error": false}, {"span_id": "agn-001", "operation": "route_request", "component": "agent:supervisor", "latency_ms": 100.0, "attempt": 1, "has_error": false}, {"span_id": "mdl-001", "operation": "invoke_model", "component": "model:claude-3-sonnet", "latency_ms": 1550.0, "attempt": 1, "has_error": false}, {"span_id": "agn-002", "operation": "validate", "component": "agent:gatekeeper", "latency_ms": 50.0, "attempt": 1, "has_error": false}, {"span_id": "mdl-002", "operation": "invoke_model", "component": "model:claude-3-sonnet", "latency_ms": 350.0, "attempt": 1, "has_error": false}, {"span_id": "err-001", "operation": "put_item", "component": "dynamodb:sessions", "latency_ms": 60.0, "attempt": 2, "has_error": true}, {"span_id": "ok-001", "operation": "put_item", "component": "dynamodb:sessions", "latency_ms": 20.0, "attempt": 3, "has_error": false}];
+    let panZoom;
+    let selectedSpanId = null;
+    let fuse;
+    let activeFilters = new Set();
+    
+    // Initialize pan-zoom
+    document.addEventListener('DOMContentLoaded', function() {
+        panZoom = svgPanZoom('#diagram', {
+            zoomEnabled: true,
+            controlIconsEnabled: false,
+            fit: true,
+            center: true,
+            minZoom: 0.1,
+            maxZoom: 10,
+            zoomScaleSensitivity: 0.3
+        });
+        
+        // Initialize Fuse for search
+        fuse = new Fuse(spansData, {
+            keys: ['operation', 'component', 'span_id'],
+            threshold: 0.4,
+            includeScore: true
+        });
+        
+        // Setup event listeners
+        setupEventListeners();
+    });
+    
+    function setupEventListeners() {
+        // Click on messages
+        document.querySelectorAll('.message').forEach(el => {
+            el.addEventListener('click', function(e) {
+                e.stopPropagation();
+                const spanId = this.dataset.spanId;
+                selectSpan(spanId);
+            });
+        });
+        
+        // Click outside to deselect
+        document.querySelector('.svg-container').addEventListener('click', function(e) {
+            if (e.target === this || e.target.tagName === 'svg') {
+                clearSelection();
+            }
+        });
+        
+        // Search input
+        const searchInput = document.getElementById('search');
+        searchInput.addEventListener('input', function() {
+            filterSpans();
+        });
+        
+        // Filter buttons
+        document.querySelectorAll('.filter-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const filter = this.dataset.filter;
+                if (activeFilters.has(filter)) {
+                    activeFilters.delete(filter);
+                    this.classList.remove('active');
+                } else {
+                    activeFilters.add(filter);
+                    this.classList.add('active');
+                }
+                filterSpans();
+            });
+        });
+        
+        // Keyboard shortcuts
+        document.addEventListener('keydown', function(e) {
+            if (e.key === '/') {
+                e.preventDefault();
+                searchInput.focus();
+            } else if (e.key === 'Escape') {
+                searchInput.blur();
+                searchInput.value = '';
+                clearSelection();
+                filterSpans();
+            } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                navigateSpans(e.key === 'ArrowDown' ? 1 : -1);
+            }
+        });
+    }
+    
+    function selectSpan(spanId) {
+        // Clear previous selection
+        document.querySelectorAll('.message').forEach(el => {
+            el.classList.remove('selected', 'highlighted', 'dimmed');
+        });
+        
+        selectedSpanId = spanId;
+        
+        // Highlight selected
+        const selected = document.querySelector(`[data-span-id="${spanId}"]`);
+        if (selected) {
+            selected.classList.add('selected');
+            
+            // Dim others
+            document.querySelectorAll('.message').forEach(el => {
+                if (el.dataset.spanId !== spanId) {
+                    el.classList.add('dimmed');
+                }
+            });
+            
+            // Show details panel
+            showDetails(selected.dataset.span);
+        }
+    }
+    
+    function clearSelection() {
+        selectedSpanId = null;
+        document.querySelectorAll('.message').forEach(el => {
+            el.classList.remove('selected', 'highlighted', 'dimmed');
+        });
+        closeDetails();
+    }
+    
+    function showDetails(spanJson) {
+        const span = JSON.parse(spanJson);
+        const panel = document.getElementById('details-panel');
+        const content = document.getElementById('details-content');
+        
+        let html = `
+            <div class="detail-section">
+                <div class="detail-label">Operation</div>
+                <div class="detail-value">${escapeHtml(span.operation)}</div>
+            </div>
+            <div class="detail-section">
+                <div class="detail-label">Component</div>
+                <div class="detail-value">${escapeHtml(span.component)}</div>
+            </div>
+            <div class="detail-section">
+                <div class="detail-label">Span ID</div>
+                <div class="detail-value" style="font-family: monospace; font-size: 0.75rem;">${escapeHtml(span.span_id)}</div>
+            </div>
+            <div class="detail-section">
+                <div class="detail-label">Latency</div>
+                <div class="detail-value">${span.latency_ms ? span.latency_ms.toFixed(2) + ' ms' : 'N/A'}</div>
+            </div>
+            <div class="detail-section">
+                <div class="detail-label">Attempt</div>
+                <div class="detail-value ${span.attempt > 1 ? 'error' : ''}">${span.attempt}</div>
+            </div>
+            <div class="detail-section">
+                <div class="detail-label">Status</div>
+                <div class="detail-value ${span.has_error ? 'error' : 'success'}">${span.has_error ? '❌ Error' : '✅ Success'}</div>
+            </div>
+        `;
+        
+        if (span.request) {
+            html += `
+                <div class="detail-section">
+                    <div class="detail-label">Request</div>
+                    <pre class="json-viewer">${escapeHtml(JSON.stringify(span.request, null, 2))}</pre>
+                </div>
+            `;
+        }
+        
+        if (span.response) {
+            html += `
+                <div class="detail-section">
+                    <div class="detail-label">Response</div>
+                    <pre class="json-viewer">${escapeHtml(JSON.stringify(span.response, null, 2))}</pre>
+                </div>
+            `;
+        }
+        
+        if (span.error) {
+            html += `
+                <div class="detail-section">
+                    <div class="detail-label">Error</div>
+                    <pre class="json-viewer" style="border-color: var(--error-color);">${escapeHtml(JSON.stringify(span.error, null, 2))}</pre>
+                </div>
+            `;
+        }
+        
+        content.innerHTML = html;
+        panel.classList.remove('collapsed');
+    }
+    
+    function closeDetails() {
+        document.getElementById('details-panel').classList.add('collapsed');
+    }
+    
+    function filterSpans() {
+        const searchTerm = document.getElementById('search').value.trim();
+        let visibleSpanIds = new Set(spansData.map(s => s.span_id));
+        
+        // Apply search filter
+        if (searchTerm) {
+            const results = fuse.search(searchTerm);
+            visibleSpanIds = new Set(results.map(r => r.item.span_id));
+        }
+        
+        // Apply active filters
+        if (activeFilters.has('errors')) {
+            const errorIds = new Set(spansData.filter(s => s.has_error).map(s => s.span_id));
+            visibleSpanIds = new Set([...visibleSpanIds].filter(id => errorIds.has(id)));
+        }
+        
+        if (activeFilters.has('retries')) {
+            const retryIds = new Set(spansData.filter(s => s.attempt > 1).map(s => s.span_id));
+            visibleSpanIds = new Set([...visibleSpanIds].filter(id => retryIds.has(id)));
+        }
+        
+        // Show/hide messages
+        document.querySelectorAll('.message').forEach(el => {
+            if (visibleSpanIds.has(el.dataset.spanId)) {
+                el.classList.remove('hidden');
+            } else {
+                el.classList.add('hidden');
+            }
+        });
+    }
+    
+    function navigateSpans(direction) {
+        const visible = Array.from(document.querySelectorAll('.message:not(.hidden)'));
+        if (visible.length === 0) return;
+        
+        if (!selectedSpanId) {
+            selectSpan(visible[0].dataset.spanId);
+            return;
+        }
+        
+        const currentIdx = visible.findIndex(el => el.dataset.spanId === selectedSpanId);
+        const newIdx = Math.max(0, Math.min(visible.length - 1, currentIdx + direction));
+        selectSpan(visible[newIdx].dataset.spanId);
+    }
+    
+    function toggleTheme() {
+        const body = document.body;
+        const btn = document.querySelector('.theme-btn');
+        if (body.getAttribute('data-theme') === 'dark') {
+            body.removeAttribute('data-theme');
+            btn.textContent = '🌙';
+        } else {
+            body.setAttribute('data-theme', 'dark');
+            btn.textContent = '☀️';
+        }
+    }
+    
+    function escapeHtml(str) {
+        if (typeof str !== 'string') return str;
+        return str.replace(/&/g, '&amp;')
+                  .replace(/</g, '&lt;')
+                  .replace(/>/g, '&gt;')
+                  .replace(/"/g, '&quot;');
+    }
+    </script>
+</body>
+</html>

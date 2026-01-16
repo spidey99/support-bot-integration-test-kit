@@ -1,0 +1,33 @@
+# Example fixture definition
+# Generate with: itk generate-fixture --definition fixtures/definitions/sample.yaml --out fixtures/logs/generated.jsonl
+
+defaults:
+  itk_trace_id: "test-trace-001"
+  auto_timestamps: true
+
+spans:
+  # Entrypoint - SQS Lambda trigger
+  - component: "lambda:sqs-handler"
+    operation: "InvokeLambda"
+    request:
+      Records:
+        - messageId: "msg-001"
+          body:
+            userMessage: "Hello, how can you help?"
+
+  # Agent invocation
+  - component: "agent:supervisor"
+    operation: "InvokeAgent"
+    parent_span_id: "{{prev}}"
+    bedrock_session_id: "session-001"
+    request:
+      inputText: "Hello, how can you help?"
+
+  # Model call from agent
+  - component: "model:claude-3-sonnet"
+    operation: "InvokeModel"
+    parent_span_id: "{{prev}}"
+    request:
+      prompt: "You are a helpful assistant..."
+    response:
+      completion: "I can help with many tasks..."

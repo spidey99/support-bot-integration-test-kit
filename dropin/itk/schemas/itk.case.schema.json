@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "itk.case.schema.json",
+  "type": "object",
+  "required": ["id", "name", "entrypoint"],
+  "properties": {
+    "id": {"type": "string"},
+    "name": {"type": "string"},
+    "entrypoint": {
+      "type": "object",
+      "required": ["type", "target", "payload"],
+      "properties": {
+        "type": {"type": "string", "enum": ["sqs_event", "lambda_invoke", "bedrock_invoke_agent", "http"]},
+        "target": {"type": "object"},
+        "payload": {"type": "object"}
+      },
+      "additionalProperties": true
+    },
+    "expected": {
+      "type": "object",
+      "properties": {
+        "invariants": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name"],
+            "properties": {
+              "name": {"type": "string"},
+              "params": {"type": "object"}
+            }
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "notes": {
+      "type": "object",
+      "properties": {
+        "source": {"type": "string"},
+        "missing_fields": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}
