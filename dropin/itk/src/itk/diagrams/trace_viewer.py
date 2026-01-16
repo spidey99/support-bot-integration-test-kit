@@ -549,9 +549,16 @@ def render_trace_viewer(
             cursor: grabbing;
         }}
         
+        /* Allow pointer events on interactive SVG children */
+        .svg-container svg .message {{
+            pointer-events: all;
+            cursor: pointer;
+        }}
+        
         /* SVG styles */
         .lifeline {{
             opacity: 0.5;
+            pointer-events: none;
         }}
         
         .participant-box {{
@@ -1090,7 +1097,6 @@ def render_trace_viewer(
         
         if (span.error) {{
             html += renderPayloadSection('Error', span.error, 'error', true);
-        }}
         }}
         
         content.innerHTML = html;
