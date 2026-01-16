@@ -1,0 +1,22 @@
+id: sqs_retry_scenario
+name: SQS message with retry handling
+fixture: ../fixtures/logs/sample_run_001.jsonl
+entrypoint:
+  type: sqs_event
+  target:
+    mode: invoke_lambda
+    target_arn_or_url: "REPLACE_ME"
+  payload:
+    Records:
+      - messageId: "msg-retry-001"
+        body:
+          request:
+            userMessage: "retry test"
+            forceRetry: true
+expected:
+  invariants:
+    - name: has_spans
+    - name: max_retry_count
+      max_allowed: 3
+notes:
+  source: "test fixture for retry behavior"

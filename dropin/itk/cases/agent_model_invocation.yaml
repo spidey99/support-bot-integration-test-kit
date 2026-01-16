@@ -1,0 +1,18 @@
+id: agent_model_invocation
+name: Agent with model invocation tracing
+fixture: ../fixtures/logs/sample_run_001.jsonl
+entrypoint:
+  type: bedrock_invoke_agent
+  target:
+    mode: invoke_agent
+    agent_id: "AGENT_ID"
+    agent_alias: "ALIAS"
+  payload:
+    inputText: "Summarize this document"
+    sessionId: "session-002"
+expected:
+  invariants:
+    - name: has_spans
+    - name: no_orphan_spans
+notes:
+  source: "test fixture for model invocation"

@@ -583,11 +583,12 @@ def _cmd_scan(args: argparse.Namespace) -> int:
 def _cmd_suite(args: argparse.Namespace) -> int:
     """Run a test suite and generate consolidated report."""
     from itk.report.suite_runner import run_suite
-    from itk.report.html_report import write_suite_report
+    from itk.report.hierarchical_report import write_hierarchical_report
 
     cases_dir = Path(args.cases_dir)
     out_dir = Path(args.out)
     suite_name = getattr(args, "name", None)
+    use_flat_report = getattr(args, "flat", False)
 
     # Load config with mode from CLI or .env
     mode_arg = getattr(args, "mode", None)
@@ -622,8 +623,12 @@ def _cmd_suite(args: argparse.Namespace) -> int:
         on_case_complete=on_case_complete,
     )
 
-    # Write report
-    write_suite_report(suite, out_dir)
+    # Write report (use hierarchical by default, flat with --flat flag)
+    if use_flat_report:
+        from itk.report.html_report import write_suite_report
+        write_suite_report(suite, out_dir)
+    else:
+        write_hierarchical_report(suite, out_dir)
 
     # Summary
     print()
@@ -987,6 +992,11 @@ def main() -> None:
     p_suite.add_argument(
         "--name",
         help="Suite name (defaults to directory name)",
+    )
+    p_suite.add_argument(
+        "--flat",
+        action="store_true",
+        help="Use flat table report instead of hierarchical view",
     )
     p_suite.add_argument(
         "--mode",
