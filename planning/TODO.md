@@ -227,6 +227,166 @@
 
 ---
 
+## Phase 11: Personal Live Environment (Human + Tier 2)
+
+## ITK-0029 — AWS Account Recovery (HUMAN ACTION) ⏳
+- [ ] Log into AWS console (recover password if needed)
+- [ ] Check for outstanding bills, pay if necessary
+- [ ] Set up billing alerts: $10, $25, $50 thresholds
+- [ ] Verify account is in good standing
+- [ ] Note account ID for .env setup
+
+## ITK-0030 — Minimal AWS Test Infrastructure (HUMAN ACTION) ⏳
+- [ ] Create IAM user `itk-test-user` with scoped permissions:
+  - logs:GetQueryResults, logs:StartQuery, logs:FilterLogEvents
+  - sqs:SendMessage, sqs:ReceiveMessage (single queue)
+  - lambda:InvokeFunction (single function)
+  - (optional) bedrock:InvokeAgent
+- [ ] Create Lambda function `itk-echo-lambda`:
+  - Simple echo handler: receives JSON, logs it, returns it
+  - Log format matches ITK span contract (span_type, operation, etc.)
+- [ ] Create SQS queue `itk-test-queue` (standard, not FIFO)
+- [ ] Create CloudWatch log group `/aws/lambda/itk-echo-lambda`
+  - Retention: 7 days (cost control)
+- [ ] (Optional) Create Bedrock agent `itk-test-agent` with simple prompt
+- [ ] Document all resource ARNs/IDs in a local `.env.personal` file
+
+## ITK-0031 — Live mode validation ⏳
+- [ ] Create test case `cases/live-echo-001.yaml` targeting personal Lambda
+- [ ] Run `itk run --mode live --case cases/live-echo-001.yaml --out artifacts/live-test/`
+- [ ] Verify trace-viewer.html shows real spans from CloudWatch
+- [ ] Run `itk derive --log-group /aws/lambda/itk-echo-lambda --out artifacts/derived/`
+- [ ] Verify derived case captures real log structure
+- [ ] Run `itk soak --case cases/live-echo-001.yaml --out artifacts/soak/ --iterations 20`
+- [ ] Verify rate controller responds to real throttling (if any)
+- [ ] Document any discrepancies between fixture mode and live mode
+
+---
+
+## Phase 12: Zero-Config Bootstrap
+
+## ITK-0032 — Bootstrap scripts ⏳
+- [ ] Create `scripts/bootstrap.sh` for Mac/Linux:
+  ```bash
+  #!/bin/bash
+  set -e
+  python3 --version | grep -E "3\.(1[0-9]|[2-9][0-9])" || { echo "Python 3.10+ required"; exit 1; }
+  python3 -m venv .venv
+  source .venv/bin/activate
+  pip install -e ".[dev]"
+  itk --help > /dev/null && echo "SUCCESS: ITK installed" || echo "FAILED"
+  ```
+- [ ] Create `scripts/bootstrap.ps1` for Windows:
+  ```powershell
+  $ErrorActionPreference = "Stop"
+  python --version | Select-String "3\.(1[0-9]|[2-9][0-9])" || throw "Python 3.10+ required"
+  python -m venv .venv
+  .\.venv\Scripts\Activate.ps1
+  pip install -e ".[dev]"
+  itk --help | Out-Null; if ($?) { "SUCCESS: ITK installed" } else { "FAILED" }
+  ```
+- [ ] Add to QUICKSTART: "Run `./scripts/bootstrap.sh` or `.\scripts\bootstrap.ps1`"
+- [ ] Test on fresh machine (no prior Python setup)
+
+## ITK-0033 — Auto-detection in CLI ⏳
+- [ ] Add Python version check at CLI startup (friendly error, not traceback)
+- [ ] Add venv detection: warn if not in venv (but don't block)
+- [ ] Auto-copy `.env.example` to `.env` if missing (with log message)
+- [ ] Add `itk doctor` command:
+  - Check Python version
+  - Check dependencies installed
+  - Check .env exists and is valid
+  - Check AWS credentials (if mode=live)
+  - Print summary: "Ready to run" or "Fix these issues: ..."
+
+## ITK-0034 — Environment discovery command ⏳
+- [ ] Add `itk discover` command (live mode only):
+  - Call `logs:DescribeLogGroups` → list log groups
+  - Call `sqs:ListQueues` → list queues
+  - Call `bedrock-agent:ListAgents` → list agents (if available)
+  - Output: `.env.discovered` with commented suggestions
+  - User reviews, picks values, renames to `.env`
+- [ ] Add `--region` flag (default: from env or us-east-1)
+- [ ] Add `--profile` flag (for AWS CLI profiles)
+- [ ] Handle permission errors gracefully ("Missing permission for X, skipping")
+
+---
+
+## Phase 13: Derp-Proof Usage
+
+## ITK-0035 — Config-only operation ⏳
+- [ ] Audit all docs for "edit this file" instructions → replace with .env vars
+- [ ] Ensure every CLI flag has a sensible default
+- [ ] Create `itk.config.defaults.json` with all defaults documented
+- [ ] Add `itk show-config` to print effective config (merged from all sources)
+
+## ITK-0036 — Single-action workflows ⏳
+- [ ] Add `itk quickstart` command:
+  1. Run bootstrap checks
+  2. Run discover (if mode=live)
+  3. Create sample .env if missing
+  4. Run first test case
+  5. Open trace-viewer in browser
+- [ ] Add `itk validate-env` command:
+  - Parse .env
+  - Check required fields present
+  - Check AWS credentials valid (if mode=live)
+  - Print "Environment valid" or specific issues
+- [ ] Add `itk status` command:
+  - Show current mode (dev-fixtures/live)
+  - Show configured log groups
+  - Show last run timestamp/status
+  - Show any pending issues from `itk doctor`
+
+## ITK-0037 — Error message improvements ⏳
+- [ ] Create error code registry (`src/itk/errors.py`):
+  - ITK-E001: Missing .env file
+  - ITK-E002: Invalid .env format
+  - ITK-E003: AWS credentials not configured
+  - ITK-E004: Log group not found
+  - ITK-E005: Case file not found
+  - ITK-E006: Schema validation failed
+  - etc.
+- [ ] Each error prints: code, message, "Next step: <command>"
+- [ ] Add `--verbose` flag to show full traceback
+- [ ] Create `docs/error-codes.md` with all codes and solutions
+
+---
+
+## Phase 14: Log Schema Documentation
+
+## ITK-0038 — Reference log documentation ⏳
+- [ ] Create `docs/log-schema-example.json`:
+  ```json
+  {
+    "// comment": "This is a single span log entry",
+    "span_type": "bedrock_agent",   // Component type
+    "operation": "InvokeAgent",      // What was called
+    "trace_id": "abc123",            // For correlation
+    "request_id": "req-456",         // AWS request ID
+    "ts_start": "2026-01-17T10:00:00Z",
+    "ts_end": "2026-01-17T10:00:01Z",
+    "request": { "/* input payload */" },
+    "response": { "/* output payload */" },
+    "error": null,                   // Or error object if failed
+    "retry_attempt": 0               // 0 = first try, 1+ = retries
+  }
+  ```
+- [ ] Create `docs/log-field-glossary.md` with every field explained
+- [ ] Add field comments to `schemas/itk.span.schema.json`
+
+## ITK-0039 — Schema explanation CLI ⏳
+- [ ] Add `itk explain-schema` command:
+  - Pretty-print itk.span.schema.json with examples
+  - Show required vs optional fields
+  - Show enum values with descriptions
+- [ ] Add `itk validate-log --file <path>`:
+  - Validate each line of JSONL against schema
+  - Report: "Line 5: missing required field 'span_type'"
+  - Summary: "X valid, Y invalid"
+
+---
+
 ## Implementation Notes (Tier 2)
 
 > **Context**: Tier-2 develops offline against fixtures/mocks.
