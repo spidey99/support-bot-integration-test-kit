@@ -2756,12 +2756,21 @@ def _cmd_bootstrap(args: argparse.Namespace) -> int:
     """Zero-config initialization: discover, configure, scaffold, run."""
     import webbrowser
     from itk.bootstrap import bootstrap, check_credentials, get_default_region, get_default_profile
+    from itk.config import parse_env_file
 
     region = getattr(args, "region", None)
     profile = getattr(args, "profile", None)
     offline = getattr(args, "offline", False)
     force = getattr(args, "force", False)
     run_test = getattr(args, "run_test", True)
+
+    # Load .env if it exists (for credentials before discovery)
+    env_file = Path.cwd() / ".env"
+    if env_file.exists():
+        env_vars = parse_env_file(env_file)
+        for k, v in env_vars.items():
+            if v:  # Only set non-empty values
+                os.environ[k] = v
 
     print("ITK Bootstrap - Zero-Config Initialization")
     print("=" * 45)
