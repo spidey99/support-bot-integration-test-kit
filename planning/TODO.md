@@ -239,7 +239,7 @@
 - [x] Check for outstanding bills, pay if necessary
 - [x] Set up billing alerts: $10, $25, $50 thresholds
 - [x] Verify account is in good standing
-- [x] Note account ID for .env setup: **752995910580**
+- [x] Note account ID for .env setup: **(see .env.example)**
 
 ## ITK-0030 — Minimal AWS Test Infrastructure (HUMAN ACTION) ✅
 - [x] Create IAM user `itk-test-user` with scoped permissions:

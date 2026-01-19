@@ -3,10 +3,18 @@
 
 param(
     [Parameter(Mandatory=$true)]
-    [string]$Code
+    [string]$Code,
+    
+    [Parameter(Mandatory=$false)]
+    [string]$MfaArn = $env:ITK_MFA_ARN
 )
 
-$MFA_ARN = "arn:aws:iam::752995910580:mfa/rc-phone-admin"
+if (-not $MfaArn) {
+    Write-Host "Error: MFA ARN not provided. Set ITK_MFA_ARN or pass -MfaArn" -ForegroundColor Red
+    exit 1
+}
+
+$MFA_ARN = $MfaArn
 
 Write-Host "Getting session token..." -ForegroundColor Yellow
 
