@@ -2,7 +2,11 @@
 
 You are setting up the Integration Test Kit (ITK) to test a Bedrock Agent deployed in AWS. Follow these steps exactly in order. Run each command and wait for it to complete before moving to the next step.
 
-**IMPORTANT:** Always show the user command output and explain what happened. If any command fails, stop and help the user fix it before continuing.
+**CRITICAL RULES:**
+1. Always show the user command output and explain what happened
+2. If any command fails, stop and help the user fix it before continuing
+3. **NEVER proceed with placeholder values** - if `.env` has commented-out values (`#`) or angle brackets (`<placeholder>`), STOP and get real credentials first
+4. Real AWS resource IDs look like: `WYEP3TYH1A` (agent ID), `/aws/lambda/my-function` (log group)
 
 ## Phase 0: Get AWS Credentials
 
@@ -42,17 +46,27 @@ Before starting, ensure you have AWS credentials in your terminal.
    itk bootstrap
    ```
 
-5. **If bootstrap shows AccessDenied or missing resources:**
+5. **STOP if bootstrap shows ⚠️ for credentials or 0 resources discovered.**
 
-   Open `.env` and verify these values match your AWS setup:
+   You MUST have valid AWS credentials before continuing. Do NOT proceed with placeholder values.
+   
+   To fix credential issues:
+   - Get fresh credentials from CloudShell: `aws configure export-credentials --format env`
+   - Paste the `export AWS_...` lines into your terminal
+   - Run `itk bootstrap` again
+   
+   After successful bootstrap, verify `.env` contains REAL values (not placeholders):
    ```
-   AWS_REGION=us-east-1
-   ITK_BEDROCK_AGENT_ID=<your-agent-id>
-   ITK_BEDROCK_AGENT_ALIAS_ID=TSTALIASID
-   ITK_LOG_GROUPS=/aws/lambda/<your-function-name>
+   # ❌ WRONG - these are placeholders, NOT real values:
+   # ITK_LOG_GROUPS=  # commented out = not set
+   # ITK_BEDROCK_AGENT_ID=<your-agent-id>  # angle brackets = placeholder
+   
+   # ✅ CORRECT - real values look like:
+   ITK_LOG_GROUPS=/aws/lambda/my-actual-function-name
+   ITK_BEDROCK_AGENT_ID=ABC123XYZ
    ```
    
-   To find your values:
+   To find values manually (only if auto-discovery fails):
    - Agent ID: AWS Console → Bedrock → Agents → click your agent → copy Agent ID
    - Log groups: AWS Console → CloudWatch → Log groups → find Lambda logs
 
@@ -91,7 +105,8 @@ Before starting, ensure you have AWS credentials in your terminal.
 
 ## Success Criteria
 
-- [ ] `itk bootstrap` shows ✅ for AWS credentials
+- [ ] `itk bootstrap` shows ✅ for AWS credentials (NOT ⚠️)
+- [ ] `.env` contains real values (no `#` comments, no `<placeholders>`)
 - [ ] `artifacts/history/index.html` shows past executions
 - [ ] `cases/derived/` contains at least one `.yaml` file
 - [ ] `artifacts/run1/index.html` shows a sequence diagram

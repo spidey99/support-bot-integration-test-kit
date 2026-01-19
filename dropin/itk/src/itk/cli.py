@@ -2811,11 +2811,13 @@ def _cmd_bootstrap(args: argparse.Namespace) -> int:
         print(f"  • {result.first_case}")
     print()
     
-    # Show discovered resources
+    # Show discovered resources OR warn loudly if none
+    resources_found = False
     if result.discovered:
         agents = result.discovered.get("agents", [])
         log_groups = result.discovered.get("log_groups", [])
-        if agents:
+        if agents or log_groups:
+            resources_found = True
             print("Discovered resources:")
             for agent in agents[:3]:
                 print(f"  • Agent: {agent.get('name', agent.get('id'))} ({agent.get('id')})")
@@ -2823,6 +2825,18 @@ def _cmd_bootstrap(args: argparse.Namespace) -> int:
                 for lg in log_groups[:3]:
                     print(f"  • Log group: {lg}")
             print()
+    
+    if not resources_found and not offline:
+        print("⚠️  WARNING: No AWS resources discovered!")
+        print("   The generated .env has placeholder values that will NOT work.")
+        print()
+        print("   Before continuing, you MUST:")
+        print("   1. Verify your AWS credentials are valid")
+        print("   2. Run 'itk bootstrap --force' after fixing credentials")
+        print("   3. OR manually edit .env with real resource IDs")
+        print()
+        print("   DO NOT run 'itk view' or 'itk derive' with placeholder values.")
+        print()
     
     print("Next steps:")
     print("  1. Review .env and verify ITK_BEDROCK_AGENT_ID and ITK_LOG_GROUPS")
