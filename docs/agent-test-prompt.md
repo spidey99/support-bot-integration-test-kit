@@ -6,12 +6,12 @@ You are setting up the Integration Test Kit (ITK) to test a Bedrock Agent deploy
 
 ## Phase 1: Install ITK
 
-1. Clone or copy the ITK folder into your project:
+1. Clone the ITK repository:
    ```
    git clone https://github.com/spidey99/support-bot-integration-test-kit.git itk-source
    ```
 
-2. Copy the drop-in folder to your project root:
+2. Copy the drop-in folder to your project:
    ```
    Copy-Item -Recurse itk-source/dropin/itk ./itk
    ```
@@ -24,73 +24,61 @@ You are setting up the Integration Test Kit (ITK) to test a Bedrock Agent deploy
    pip install -e ".[dev]"
    ```
 
-4. Run bootstrap to configure:
+4. Run bootstrap to discover resources and create config:
    ```
    itk bootstrap
    ```
 
-5. **If bootstrap reports missing credentials, set up the `.env` file:**
+5. **If bootstrap shows AccessDenied or missing resources:**
 
-   a. Ask: "How do you authenticate to AWS? SSO or IAM Access Keys?"
-
-   b. **If AWS SSO:**
-      ```
-      AWS_PROFILE=your-sso-profile-name
-      ```
-      Then run: `aws sso login --profile your-sso-profile-name`
-
-   c. **If IAM Access Keys:**
-      ```
-      AWS_ACCESS_KEY_ID=AKIA...
-      AWS_SECRET_ACCESS_KEY=...
-      AWS_SESSION_TOKEN=...  (if using MFA)
-      ```
-
-   d. **Required settings:**
-      ```
-      AWS_REGION=us-east-1
-      ITK_BEDROCK_AGENT_ID=XXXXXXXXXX
-      ITK_BEDROCK_AGENT_ALIAS_ID=TSTALIASID
-      ITK_LOG_GROUPS=/aws/lambda/your-function-name
-      ```
-
-   e. Run bootstrap again: `itk bootstrap`
-
-## Phase 2: Run Your First Test
-
-6. Bootstrap creates `cases/my-first-test.yaml`. Edit it with your agent details, then run:
+   Open `.env` and verify these values match your AWS setup:
    ```
-   itk run --case cases/my-first-test.yaml --out artifacts/run1
+   AWS_REGION=us-east-1
+   ITK_BEDROCK_AGENT_ID=<your-agent-id>
+   ITK_BEDROCK_AGENT_ALIAS_ID=TSTALIASID
+   ITK_LOG_GROUPS=/aws/lambda/<your-function-name>
    ```
+   
+   To find your values:
+   - Agent ID: AWS Console → Bedrock → Agents → click your agent → copy Agent ID
+   - Log groups: AWS Console → CloudWatch → Log groups → find Lambda logs
 
-7. Open `artifacts/run1/index.html` in your browser.
+## Phase 2: View Historical Executions
 
-## Phase 3: View Historical Executions
-
-8. Discover AWS resources:
-   ```
-   itk discover --apply
-   ```
-
-9. View last hour of executions:
+6. View the last hour of executions from CloudWatch:
    ```
    itk view --since 1h --out artifacts/history
    ```
 
-## Phase 4: Derive Tests from Logs
+7. Open `artifacts/history/index.html` in your browser.
 
-10. Create test cases from CloudWatch logs:
+## Phase 3: Create Tests from Logs
+
+8. Derive test cases from CloudWatch logs:
+   ```
+   itk derive --entrypoint bedrock_invoke_agent --since 24h --out cases/derived
+   ```
+
+9. List the generated cases:
+   ```
+   Get-ChildItem cases/derived/*.yaml
+   ```
+
+## Phase 4: Run Tests
+
+10. Run a derived test case:
     ```
-    itk derive --entrypoint bedrock_invoke_agent --since 24h --out cases/derived
+    itk run --case cases/derived/<pick-one>.yaml --out artifacts/run1
     ```
 
-11. Run the derived cases:
+11. Or run all derived cases as a suite:
     ```
     itk suite --cases-dir cases/derived --out artifacts/suite
     ```
 
 ## Success Criteria
 
-- [ ] `itk bootstrap` shows ✅ for credentials and agent
-- [ ] `artifacts/run1/index.html` shows a sequence diagram
+- [ ] `itk bootstrap` shows ✅ for AWS credentials
+- [ ] `artifacts/history/index.html` shows past executions
 - [ ] `cases/derived/` contains at least one `.yaml` file
+- [ ] `artifacts/run1/index.html` shows a sequence diagram

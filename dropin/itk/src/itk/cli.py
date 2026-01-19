@@ -2800,55 +2800,6 @@ def _cmd_bootstrap(args: argparse.Namespace) -> int:
         print("❌ Bootstrap failed")
         return 1
 
-    # Step 3: Run example test (unless --no-run)
-    if run_test and result.first_case and result.first_case.exists():
-        print("Step 3: Running example test...")
-        out_dir = Path("artifacts/bootstrap")
-        out_dir.mkdir(parents=True, exist_ok=True)
-
-        # Determine mode
-        mode = "live" if not offline else "dev-fixtures"
-
-        run_args = argparse.Namespace(
-            case=str(result.first_case),
-            out=str(out_dir),
-            mode=mode,
-            env_file=str(result.env_file) if result.env_file else None,
-            no_redact=False,
-        )
-
-        try:
-            run_result = _cmd_run(run_args)
-            if run_result == 0:
-                print(f"  ✅ Test passed!")
-            else:
-                print(f"  ⚠️  Test completed with issues")
-        except FileNotFoundError as e:
-            # Fixture not found in dev-fixtures mode - expected
-            if offline:
-                print(f"  ⚠️  No fixture available for dev-fixtures mode")
-                print(f"  Create a fixture or run with --no-run and use live mode")
-            else:
-                print(f"  ❌ Error: {e}")
-        except Exception as e:
-            print(f"  ⚠️  Test error: {e}")
-        print()
-
-        # Step 4: Open results
-        trace_viewer = out_dir / "trace-viewer.html"
-        if trace_viewer.exists():
-            print("Step 4: Opening results...")
-            url = f"file://{trace_viewer.resolve()}"
-            try:
-                webbrowser.open(url)
-                print(f"  ✅ Opened {trace_viewer}")
-            except Exception:
-                print(f"  Open manually: {trace_viewer}")
-            print()
-    else:
-        print("Step 3: Skipping test run")
-        print()
-
     # Summary
     print("=" * 45)
     print("✅ Bootstrap complete!")
@@ -2859,10 +2810,24 @@ def _cmd_bootstrap(args: argparse.Namespace) -> int:
     if result.first_case:
         print(f"  • {result.first_case}")
     print()
+    
+    # Show discovered resources
+    if result.discovered:
+        agents = result.discovered.get("agents", [])
+        log_groups = result.discovered.get("log_groups", [])
+        if agents:
+            print("Discovered resources:")
+            for agent in agents[:3]:
+                print(f"  • Agent: {agent.get('name', agent.get('id'))} ({agent.get('id')})")
+            if log_groups:
+                for lg in log_groups[:3]:
+                    print(f"  • Log group: {lg}")
+            print()
+    
     print("Next steps:")
-    print("  • Review .env and adjust settings")
-    print("  • Edit cases/my-first-test.yaml for your use case")
-    print("  • Run 'itk run --case cases/my-first-test.yaml --out artifacts/run1'")
+    print("  1. Review .env and verify ITK_BEDROCK_AGENT_ID and ITK_LOG_GROUPS")
+    print("  2. Run 'itk view --since 1h --out artifacts/history' to see past executions")
+    print("  3. Run 'itk derive --since 24h --out cases/derived' to create tests from logs")
 
     return 0
 
@@ -3396,19 +3361,6 @@ def main() -> None:
         "--force",
         action="store_true",
         help="Overwrite existing files",
-    )
-    p_bootstrap.add_argument(
-        "--run",
-        action="store_true",
-        default=True,
-        dest="run_test",
-        help="Run example test after bootstrap (default: true)",
-    )
-    p_bootstrap.add_argument(
-        "--no-run",
-        action="store_false",
-        dest="run_test",
-        help="Skip running example test",
     )
     p_bootstrap.set_defaults(func=_cmd_bootstrap)
 
