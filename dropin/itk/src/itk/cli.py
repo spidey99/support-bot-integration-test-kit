@@ -44,12 +44,9 @@ def _check_startup() -> None:
             print("   To suppress: set ITK_SUPPRESS_VENV_WARNING=1", file=sys.stderr)
             print("", file=sys.stderr)
     
-    # Auto-copy .env.example to .env if missing
-    env_file = Path.cwd() / ".env"
-    env_example = Path.cwd() / ".env.example"
-    if not env_file.exists() and env_example.exists():
-        shutil.copy(env_example, env_file)
-        print(f"ℹ️  Created .env from .env.example. Edit it with your configuration.", file=sys.stderr)
+    # DO NOT auto-copy .env.example - it has placeholder values that cause errors
+    # Users should run 'itk bootstrap' which generates proper config
+    # or manually create .env with real values
 
 
 def _resolve_fixture_for_case(case_path: Path, offline: bool) -> Path:

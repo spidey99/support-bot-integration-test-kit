@@ -33,6 +33,7 @@ class BootstrapResult:
     env_file: Path | None = None
     first_case: Path | None = None
     artifacts_dir: Path | None = None
+    discovered: dict | None = None  # Resources discovered from AWS
 
 
 @dataclass
@@ -569,6 +570,7 @@ def bootstrap(
         result.first_case = starter_case
 
     result.artifacts_dir = root / "artifacts"
+    result.discovered = discovered
     result.success = True
     return result
 
