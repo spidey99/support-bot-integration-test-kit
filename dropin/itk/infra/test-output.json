@@ -1,0 +1,1 @@
+{"statusCode": 200, "body": {"message": "Hello there, how are you?", "model": "us.anthropic.claude-3-5-haiku-20241022-v1:0", "usage": {"input_tokens": 14, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0, "output_tokens": 10}, "trace_id": "f73b0295-e1ef-4b2b-9404-850b08f1a305", "request_id": "41173825-e7bb-4043-bdf1-d7fb2ca63d0b"}}

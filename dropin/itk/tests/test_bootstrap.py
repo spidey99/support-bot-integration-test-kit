@@ -178,7 +178,7 @@ class TestGenerateEnvContent:
             log_groups=["/aws/lambda/test"],
         )
         assert "ITK_MODE=live" in content
-        assert "ITK_AWS_REGION=us-east-1" in content
+        assert "AWS_REGION=us-east-1" in content
         assert "ITK_LOG_GROUPS=/aws/lambda/test" in content
 
     def test_includes_agent_config(self) -> None:
@@ -201,15 +201,46 @@ class TestGenerateEnvContent:
         )
         assert "ITK_SQS_QUEUE_URL=https://sqs.us-east-1.amazonaws.com/123/test" in content
 
+    def test_preserves_existing_credentials(self) -> None:
+        """Should preserve AWS credentials from existing .env."""
+        existing = {
+            "AWS_ACCESS_KEY_ID": "AKIATEST123",
+            "AWS_SECRET_ACCESS_KEY": "secretkey123",
+            "AWS_SESSION_TOKEN": "token123",
+            "AWS_REGION": "us-west-2",
+        }
+        content = generate_env_content(
+            region="us-east-1",  # Discovered region, but existing should take precedence
+            log_groups=["/aws/lambda/new"],
+            existing_env=existing,
+        )
+        assert "AWS_ACCESS_KEY_ID=AKIATEST123" in content
+        assert "AWS_SECRET_ACCESS_KEY=secretkey123" in content
+        assert "AWS_SESSION_TOKEN=token123" in content
+        assert "AWS_REGION=us-west-2" in content  # Should preserve existing region
+
+    def test_preserves_existing_profile(self) -> None:
+        """Should preserve AWS_PROFILE from existing .env."""
+        existing = {"AWS_PROFILE": "my-sso-profile"}
+        content = generate_env_content(
+            region="us-east-1",
+            log_groups=[],
+            existing_env=existing,
+        )
+        assert "AWS_PROFILE=my-sso-profile" in content
+        assert "AWS_ACCESS_KEY_ID" not in content  # Should not add key placeholders
+
 
 class TestGenerateExampleCase:
     """Tests for generate_example_case."""
 
-    def test_generates_lambda_case_without_agent(self) -> None:
-        """Should generate lambda_invoke case when no agent provided."""
+    def test_generates_bedrock_case_with_placeholders_when_no_agent(self) -> None:
+        """Should generate bedrock_invoke_agent case with placeholders when no agent provided."""
         content = generate_example_case()
         assert "id: example-001" in content
-        assert "lambda_invoke" in content
+        assert "bedrock_invoke_agent" in content
+        assert "YOUR_AGENT_ID_HERE" in content
+        assert "TSTALIASID" in content
 
     def test_generates_bedrock_case_with_agent(self) -> None:
         """Should generate bedrock case when agent provided."""

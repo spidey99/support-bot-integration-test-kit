@@ -287,9 +287,17 @@ def generate_env_content(
     agent_id: str | None = None,
     alias_id: str | None = None,
     queue_url: str | None = None,
+    existing_env: dict[str, str] | None = None,
 ) -> str:
-    """Generate .env file content with discovered values."""
+    """Generate .env file content with discovered values.
+    
+    Args:
+        existing_env: If provided, preserve these values (e.g., AWS credentials)
+    """
     from datetime import datetime
+
+    # Preserve existing credentials if provided
+    existing = existing_env or {}
 
     lines = [
         "# ITK Environment Configuration",
@@ -301,9 +309,26 @@ def generate_env_content(
         "# Mode: live (real AWS) or dev-fixtures (offline testing)",
         "ITK_MODE=live",
         "",
-        f"ITK_AWS_REGION={region}",
-        "",
     ]
+
+    # AWS credentials - preserve if they exist
+    if existing.get("AWS_PROFILE"):
+        lines.append(f"AWS_PROFILE={existing['AWS_PROFILE']}")
+    elif existing.get("AWS_ACCESS_KEY_ID"):
+        lines.append(f"AWS_ACCESS_KEY_ID={existing['AWS_ACCESS_KEY_ID']}")
+        if existing.get("AWS_SECRET_ACCESS_KEY"):
+            lines.append(f"AWS_SECRET_ACCESS_KEY={existing['AWS_SECRET_ACCESS_KEY']}")
+        if existing.get("AWS_SESSION_TOKEN"):
+            lines.append(f"AWS_SESSION_TOKEN={existing['AWS_SESSION_TOKEN']}")
+    else:
+        lines.append("# AWS_PROFILE=your-profile  # OR use access keys below")
+        lines.append("# AWS_ACCESS_KEY_ID=")
+        lines.append("# AWS_SECRET_ACCESS_KEY=")
+        lines.append("# AWS_SESSION_TOKEN=  # If using temporary credentials")
+    lines.append("")
+
+    lines.append(f"AWS_REGION={existing.get('AWS_REGION', region)}")
+    lines.append("")
 
     # Log groups
     if log_groups:
@@ -357,12 +382,14 @@ def generate_example_case(
     """Generate a minimal example case YAML."""
     import yaml
 
+    # Always default to bedrock_invoke_agent - it's the primary use case
+    # and provides clear placeholders when no agent is discovered
     case: dict[str, Any] = {
         "id": "example-001",
         "name": "Example Test Case",
         "description": "Auto-generated example case. Edit to match your use case.",
         "entrypoint": {
-            "type": "bedrock_invoke_agent" if agent_id else "lambda_invoke",
+            "type": "bedrock_invoke_agent",
         },
     }
 
@@ -372,8 +399,17 @@ def generate_example_case(
             case["entrypoint"]["alias_id"] = alias_id
         else:
             case["entrypoint"]["agent_version"] = "latest"
-        case["entrypoint"]["prompt"] = "Hello, this is a test message."
-        case["entrypoint"]["session_id"] = "itk-test-session"
+    else:
+        # Provide placeholder with clear instructions
+        case["entrypoint"]["agent_id"] = "YOUR_AGENT_ID_HERE"
+        case["entrypoint"]["alias_id"] = "TSTALIASID"
+        case["description"] = (
+            "EDIT THIS: Replace YOUR_AGENT_ID_HERE with your Bedrock Agent ID. "
+            "Find it in AWS Console → Bedrock → Agents."
+        )
+
+    case["entrypoint"]["prompt"] = "Hello, this is a test message."
+    case["entrypoint"]["session_id"] = "itk-test-session"
 
     case["invariants"] = [
         {"type": "no_error_spans"},
@@ -465,6 +501,19 @@ def bootstrap(
 
     # Step 5: Generate .env
     env_file = root / ".env"
+    
+    # Parse existing .env to preserve credentials
+    existing_env: dict[str, str] = {}
+    if env_file.exists():
+        try:
+            for line in env_file.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    key, _, value = line.partition("=")
+                    existing_env[key.strip()] = value.strip()
+        except Exception:
+            pass  # Best effort
+    
     if not env_file.exists() or force:
         # Pick first agent if available
         agent_id = None
@@ -482,6 +531,7 @@ def bootstrap(
             agent_id=agent_id,
             alias_id=alias_id,
             queue_url=discovered["queues"][0] if discovered["queues"] else None,
+            existing_env=existing_env,  # Preserve credentials
         )
         env_file.write_text(content, encoding="utf-8")
         result.env_file = env_file
