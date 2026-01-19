@@ -18,9 +18,18 @@ itk bootstrap
 - [ ] Auto-discover Bedrock agents and log groups
 - [ ] Generate working configuration
 
-### Using AWS SSO Credentials
+### Getting AWS Credentials
 
-If you use AWS SSO, paste credentials directly:
+#### From AWS CloudShell (easiest)
+
+1. Open AWS Console and click the CloudShell icon (terminal icon in top nav)
+2. Run this command:
+   ```bash
+   aws configure export-credentials --format env
+   ```
+3. Copy the output and paste into PowerShell (Windows) or terminal (Mac/Linux)
+
+#### From AWS SSO Portal
 
 1. Go to your AWS SSO portal and click "Command line or programmatic access"
 2. Copy the `export` block (the one starting with `export AWS_ACCESS_KEY_ID=...`)
@@ -36,13 +45,13 @@ AWS_REGION=us-east-1
 
 ### Verify Setup
 
-After bootstrap, verify everything works:
+After bootstrap, view recent executions:
 
 ```bash
-itk run --mode dev-fixtures --case cases/example-001.yaml --out artifacts/test
+itk view --since 1h --out artifacts/history
 ```
 
-Open `artifacts/test/index.html` in your browser. If you see a sequence diagram, ITK is working.
+Open `artifacts/history/index.html` in your browser.
 
 ## Shell Bootstrap Scripts
 
