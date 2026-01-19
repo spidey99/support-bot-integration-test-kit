@@ -2,6 +2,8 @@
 
 You are setting up the Integration Test Kit (ITK) to test a Bedrock Agent deployed in AWS. Follow these steps exactly in order. Run each command and wait for it to complete before moving to the next step.
 
+**IMPORTANT:** Always show the user command output and explain what happened. If any command fails, stop and help the user fix it before continuing.
+
 ## Phase 1: Install ITK
 
 1. Clone or copy the ITK folder into your project:
@@ -27,7 +29,68 @@ You are setting up the Integration Test Kit (ITK) to test a Bedrock Agent deploy
    itk bootstrap
    ```
 
-5. If bootstrap reports missing credentials, paste your AWS SSO credentials into the `.env` file. Get them from your AWS SSO portal.
+5. **If bootstrap reports missing credentials, you need to set up the `.env` file.** Follow these sub-steps:
+
+   a. First, copy the example file:
+      ```
+      Copy-Item .env.example .env
+      ```
+
+   b. Ask the user: "How do you authenticate to AWS? Do you use:
+      - **AWS SSO** (you log in via a web browser), or
+      - **IAM Access Keys** (you have an access key ID and secret)?"
+
+   c. **If AWS SSO:** Tell the user to add their profile name:
+      ```
+      # In .env, set:
+      AWS_PROFILE=your-sso-profile-name
+      ```
+      Then run: `aws sso login --profile your-sso-profile-name`
+
+   d. **If IAM Access Keys:** Tell the user to get temporary credentials and add them:
+      ```
+      # In .env, set all three:
+      AWS_ACCESS_KEY_ID=AKIA...
+      AWS_SECRET_ACCESS_KEY=...
+      AWS_SESSION_TOKEN=...  (if using MFA/assumed role)
+      ```
+
+   e. **Required for all setups - AWS Region:**
+      ```
+      AWS_REGION=us-east-1
+      ```
+      Ask the user: "What AWS region is your Bedrock Agent in? (default: us-east-1)"
+
+   f. **Required - Bedrock Agent IDs:**
+      Ask the user: "What is your Bedrock Agent ID? You can find this in the AWS Console under Bedrock > Agents."
+      ```
+      ITK_BEDROCK_AGENT_ID=XXXXXXXXXX
+      ```
+      
+      Ask the user: "What is your Bedrock Agent Alias ID? (Use 'TSTALIASID' for the test alias, or your specific alias ID)"
+      ```
+      ITK_BEDROCK_AGENT_ALIAS_ID=TSTALIASID
+      ```
+
+   g. **Required - CloudWatch Log Groups:**
+      Ask the user: "What CloudWatch log groups contain your agent's Lambda logs? These are usually named like `/aws/lambda/your-function-name`. Separate multiple log groups with commas."
+      ```
+      ITK_LOG_GROUPS=/aws/lambda/my-agent-handler,/aws/lambda/my-action-group
+      ```
+
+   h. **Verify the .env file has these minimum required values:**
+      - `ITK_MODE=live`
+      - `AWS_REGION=...`
+      - `AWS_PROFILE=...` OR (`AWS_ACCESS_KEY_ID=...` AND `AWS_SECRET_ACCESS_KEY=...`)
+      - `ITK_BEDROCK_AGENT_ID=...`
+      - `ITK_BEDROCK_AGENT_ALIAS_ID=...`
+      - `ITK_LOG_GROUPS=...`
+
+   i. Run bootstrap again to verify:
+      ```
+      itk bootstrap
+      ```
+      This should now show ✅ for AWS credentials and Bedrock Agent access.
 
 ## Phase 2: View Historical Executions (Reports from Logs)
 
