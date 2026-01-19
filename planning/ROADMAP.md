@@ -123,6 +123,46 @@
 - [ ] Detect Bedrock agents (list-agents API)
 - [ ] Output: populated .env.discovered, human reviews and renames
 
+## Phase 12.5 — Setup Wizard (interactive selection) 🆕
+> **Goal**: Guide users through resource selection with a file-based workflow.
+> Optimized for copy-paste rather than complex prompts or auto-magic.
+
+### Step 1: Dump available resources to file
+- [ ] `itk discover --dump resources.txt` writes all found resources to file
+- [ ] Format: one resource per line, grouped by type with headers
+- [ ] Example output:
+  ```
+  # Log Groups (found 12)
+  /aws/lambda/my-orchestrator
+  /aws/lambda/my-processor
+  /aws/lambda/my-api-handler
+  ...
+  
+  # Bedrock Agents (found 2)
+  WYEP3TYH1A  itk-worker
+  OXKSJVXZSU  itk-supervisor
+  
+  # SQS Queues (found 3)
+  https://sqs.us-east-1.amazonaws.com/123456789012/my-queue
+  ...
+  ```
+
+### Step 2: User selects by editing file
+- [ ] User opens file, deletes lines they don't want
+- [ ] Or copies specific lines to a new file
+- [ ] No complex syntax, just delete unwanted lines
+
+### Step 3: Apply selection
+- [ ] `itk setup --from resources.txt` reads the file
+- [ ] Generates `.env` with only the selected resources
+- [ ] Validates selections before writing
+
+### Minimal ideal flow (human/agent):
+- [ ] Document "minimal start" flow: creds + log groups only
+- [ ] `itk view --log-groups /aws/lambda/foo --since 1h`
+- [ ] No .env needed, no bootstrap, just direct CLI args
+- [ ] Success → user can then formalize into .env
+
 ## Phase 13 — Derp-proof downstream usage 🆕
 > **Goal**: Tier 3 (or any downstream user) runs ITK, doesn't modify it.
 

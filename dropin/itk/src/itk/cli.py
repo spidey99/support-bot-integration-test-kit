@@ -2178,20 +2178,21 @@ def _cmd_view(args: argparse.Namespace) -> int:
             env_file = getattr(args, "env_file", None)
             config = load_config(mode="live", env_file=env_file)
             log_groups = config.targets.log_groups
+            
+            # Validate config for common errors (only when loading from .env)
+            if log_groups:
+                validation_errors = config.targets.validate()
+                if validation_errors:
+                    print("ERROR: Invalid configuration detected:", file=sys.stderr)
+                    for err in validation_errors:
+                        print(f"  ❌ {err}", file=sys.stderr)
+                    print()
+                    print("Fix the .env file and try again.", file=sys.stderr)
+                    return 1
         
         if not log_groups:
             print("ERROR: No log groups specified.", file=sys.stderr)
             print("  Use --log-groups or set ITK_LOG_GROUPS in .env", file=sys.stderr)
-            return 1
-        
-        # Validate config for common errors
-        validation_errors = config.targets.validate()
-        if validation_errors:
-            print("ERROR: Invalid configuration detected:", file=sys.stderr)
-            for err in validation_errors:
-                print(f"  ❌ {err}", file=sys.stderr)
-            print()
-            print("Fix the .env file and try again.", file=sys.stderr)
             return 1
         
         print(f"Region: {region}")
