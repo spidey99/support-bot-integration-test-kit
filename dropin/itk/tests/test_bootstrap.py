@@ -241,6 +241,10 @@ class TestGenerateExampleCase:
         assert "bedrock_invoke_agent" in content
         assert "YOUR_AGENT_ID_HERE" in content
         assert "TSTALIASID" in content
+        # Should use nested target/payload structure
+        assert "target:" in content
+        assert "payload:" in content
+        assert "inputText:" in content
 
     def test_generates_bedrock_case_with_agent(self) -> None:
         """Should generate bedrock case when agent provided."""

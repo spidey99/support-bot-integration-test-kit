@@ -390,31 +390,33 @@ def generate_example_case(
         "description": "Auto-generated example case. Edit to match your use case.",
         "entrypoint": {
             "type": "bedrock_invoke_agent",
+            "target": {},
+            "payload": {
+                "inputText": "Hello, this is a test message.",
+                "sessionId": "itk-test-session",
+                "enableTrace": True,
+            },
         },
+        "invariants": [
+            {"type": "no_error_spans"},
+            {"type": "max_duration_ms", "value": 30000},
+        ],
     }
 
     if agent_id:
-        case["entrypoint"]["agent_id"] = agent_id
+        case["entrypoint"]["target"]["agent_id"] = agent_id
         if alias_id:
-            case["entrypoint"]["alias_id"] = alias_id
+            case["entrypoint"]["target"]["agent_alias_id"] = alias_id
         else:
-            case["entrypoint"]["agent_version"] = "latest"
+            case["entrypoint"]["target"]["agent_version"] = "latest"
     else:
         # Provide placeholder with clear instructions
-        case["entrypoint"]["agent_id"] = "YOUR_AGENT_ID_HERE"
-        case["entrypoint"]["alias_id"] = "TSTALIASID"
+        case["entrypoint"]["target"]["agent_id"] = "YOUR_AGENT_ID_HERE"
+        case["entrypoint"]["target"]["agent_alias_id"] = "TSTALIASID"
         case["description"] = (
             "EDIT THIS: Replace YOUR_AGENT_ID_HERE with your Bedrock Agent ID. "
-            "Find it in AWS Console → Bedrock → Agents."
+            "Find it in AWS Console -> Bedrock -> Agents."
         )
-
-    case["entrypoint"]["prompt"] = "Hello, this is a test message."
-    case["entrypoint"]["session_id"] = "itk-test-session"
-
-    case["invariants"] = [
-        {"type": "no_error_spans"},
-        {"type": "max_duration_ms", "value": 30000},
-    ]
 
     return yaml.dump(case, default_flow_style=False, sort_keys=False, allow_unicode=True)
 

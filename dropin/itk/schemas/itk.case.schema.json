@@ -8,11 +8,16 @@
     "name": {"type": "string"},
     "entrypoint": {
       "type": "object",
-      "required": ["type", "target", "payload"],
+      "required": ["type"],
       "properties": {
         "type": {"type": "string", "enum": ["sqs_event", "lambda_invoke", "bedrock_invoke_agent", "http"]},
         "target": {"type": "object"},
-        "payload": {"type": "object"}
+        "payload": {"type": "object"},
+        "agent_id": {"type": "string"},
+        "alias_id": {"type": "string"},
+        "agent_version": {"type": "string"},
+        "prompt": {"type": "string"},
+        "session_id": {"type": "string"}
       },
       "additionalProperties": true
     },

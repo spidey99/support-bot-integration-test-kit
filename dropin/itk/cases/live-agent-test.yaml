@@ -1,0 +1,18 @@
+id: live-agent-test
+name: Live Bedrock Agent Test
+description: Tests the worker agent with a simple prompt
+
+entrypoint:
+  type: bedrock_invoke_agent
+  target:
+    agent_id: WYEP3TYH1A
+    agent_alias_id: 10KMKO4HUD
+  payload:
+    inputText: "Hello, please respond with a simple greeting."
+    sessionId: itk-live-test-001
+    enableTrace: true
+
+invariants:
+  - type: no_error_spans
+  - type: max_duration_ms
+    value: 30000
