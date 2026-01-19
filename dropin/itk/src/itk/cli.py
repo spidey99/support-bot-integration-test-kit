@@ -2754,6 +2754,7 @@ def _cmd_quickstart(args: argparse.Namespace) -> int:
 
 def _cmd_bootstrap(args: argparse.Namespace) -> int:
     """Zero-config initialization: discover, configure, scaffold, run."""
+    import os
     import webbrowser
     from itk.bootstrap import bootstrap, check_credentials, get_default_region, get_default_profile
     from itk.config import parse_env_file
