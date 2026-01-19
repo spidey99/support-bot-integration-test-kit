@@ -2170,13 +2170,14 @@ def _cmd_view(args: argparse.Namespace) -> int:
         if profile:
             os.environ["AWS_PROFILE"] = profile
         
-        # Get log groups
+        # Always load config to pick up credentials from .env
+        env_file = getattr(args, "env_file", None)
+        config = load_config(mode="live", env_file=env_file)
+        
+        # Get log groups - CLI arg takes precedence over config
         if log_groups_arg:
             log_groups = [g.strip() for g in log_groups_arg.split(",")]
         else:
-            # Try from config
-            env_file = getattr(args, "env_file", None)
-            config = load_config(mode="live", env_file=env_file)
             log_groups = config.targets.log_groups
             
             # Validate config for common errors (only when loading from .env)
