@@ -505,15 +505,12 @@ def bootstrap(
     # Step 5: Generate .env
     env_file = root / ".env"
     
-    # Parse existing .env to preserve credentials
+    # Parse existing .env to preserve credentials (use proper parser that handles 'export' prefix)
+    from itk.config import parse_env_file
     existing_env: dict[str, str] = {}
     if env_file.exists():
         try:
-            for line in env_file.read_text(encoding="utf-8").splitlines():
-                line = line.strip()
-                if line and not line.startswith("#") and "=" in line:
-                    key, _, value = line.partition("=")
-                    existing_env[key.strip()] = value.strip()
+            existing_env = parse_env_file(env_file)
         except Exception:
             pass  # Best effort
     
