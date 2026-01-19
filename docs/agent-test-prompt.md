@@ -5,8 +5,10 @@ You are setting up the Integration Test Kit (ITK) to test a Bedrock Agent deploy
 **CRITICAL RULES:**
 1. Always show the user command output and explain what happened
 2. If any command fails, stop and help the user fix it before continuing
-3. **NEVER proceed with placeholder values** - if `.env` has commented-out values (`#`) or angle brackets (`<placeholder>`), STOP and get real credentials first
-4. Real AWS resource IDs look like: `WYEP3TYH1A` (agent ID), `/aws/lambda/my-function` (log group)
+3. **NEVER proceed with placeholder values** - if `.env` has commented-out values (`#`), `FIXME`, or angle brackets (`<placeholder>`), STOP and get real credentials first
+4. Real AWS resource IDs look like: `WYEP3TYH1A` (agent ID), `/aws/lambda/itk-haiku-invoker` (log group)
+5. **NEVER duplicate key names in values** - WRONG: `ITK_LOG_GROUPS=ITK_LOG_GROUPS=/aws/...` RIGHT: `ITK_LOG_GROUPS=/aws/...`
+6. Do NOT copy `.env.example` directly - it has placeholder values that will fail
 
 ## Phase 0: Get AWS Credentials
 

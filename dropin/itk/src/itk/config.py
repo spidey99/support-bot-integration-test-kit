@@ -80,6 +80,42 @@ class Targets:
             result.update(self.extra)
         return result
 
+    def validate(self) -> list[str]:
+        """Validate targets for common misconfiguration errors.
+        
+        Returns list of error messages. Empty list means valid.
+        """
+        errors: list[str] = []
+        
+        # Check for malformed log groups (agent copy-paste errors)
+        for lg in self.log_groups:
+            # Detect duplicated key in value: ITK_LOG_GROUPS=ITK_LOG_GROUPS=/aws/...
+            if lg.startswith("ITK_LOG_GROUPS=") or lg.startswith("ITK_"):
+                errors.append(
+                    f"Malformed log group '{lg}' - looks like a copy-paste error. "
+                    "Value should be just the path like '/aws/lambda/my-function'"
+                )
+            # Detect FIXME placeholders
+            if "FIXME" in lg.upper():
+                errors.append(
+                    f"Placeholder log group '{lg}' - replace with real value"
+                )
+            # Detect example placeholders  
+            if lg in ("/aws/lambda/my-handler", "/aws/lambda/my-other-handler"):
+                errors.append(
+                    f"Example log group '{lg}' - this is a placeholder from .env.example. "
+                    "Run 'itk discover' to find real log groups."
+                )
+        
+        # Check for placeholder agent ID
+        if self.bedrock_agent_id:
+            if "FIXME" in self.bedrock_agent_id.upper() or "<" in self.bedrock_agent_id:
+                errors.append(
+                    f"Placeholder agent ID '{self.bedrock_agent_id}' - replace with real value"
+                )
+        
+        return errors
+
 
 @dataclass
 class Config:

@@ -76,6 +76,52 @@ class TestTargets:
         assert "log_groups" not in result
         assert "aws_region" in result  # Has default value
 
+    def test_validate_good_config(self) -> None:
+        """Valid config should have no errors."""
+        targets = Targets(
+            log_groups=["/aws/lambda/my-real-function"],
+            bedrock_agent_id="ABCD1234XY",
+        )
+        errors = targets.validate()
+        assert errors == []
+
+    def test_validate_catches_malformed_log_groups(self) -> None:
+        """Detect duplicated key name in value (agent copy-paste error)."""
+        targets = Targets(
+            log_groups=["ITK_LOG_GROUPS=/aws/lambda/my-function"],
+        )
+        errors = targets.validate()
+        assert len(errors) == 1
+        assert "Malformed log group" in errors[0]
+        assert "copy-paste error" in errors[0]
+
+    def test_validate_catches_fixme_placeholders(self) -> None:
+        """Detect FIXME placeholder values."""
+        targets = Targets(
+            log_groups=["/aws/lambda/FIXME-your-function"],
+        )
+        errors = targets.validate()
+        assert len(errors) == 1
+        assert "Placeholder" in errors[0]
+
+    def test_validate_catches_example_placeholders(self) -> None:
+        """Detect example placeholder values from .env.example."""
+        targets = Targets(
+            log_groups=["/aws/lambda/my-handler", "/aws/lambda/my-other-handler"],
+        )
+        errors = targets.validate()
+        assert len(errors) == 2
+        assert all("placeholder from .env.example" in e for e in errors)
+
+    def test_validate_catches_placeholder_agent_id(self) -> None:
+        """Detect placeholder agent ID."""
+        targets = Targets(
+            bedrock_agent_id="<your-agent-id>",
+        )
+        errors = targets.validate()
+        assert len(errors) == 1
+        assert "Placeholder agent ID" in errors[0]
+
 
 class TestConfig:
     """Tests for Config dataclass."""

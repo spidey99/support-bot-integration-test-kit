@@ -2184,6 +2184,16 @@ def _cmd_view(args: argparse.Namespace) -> int:
             print("  Use --log-groups or set ITK_LOG_GROUPS in .env", file=sys.stderr)
             return 1
         
+        # Validate config for common errors
+        validation_errors = config.targets.validate()
+        if validation_errors:
+            print("ERROR: Invalid configuration detected:", file=sys.stderr)
+            for err in validation_errors:
+                print(f"  ❌ {err}", file=sys.stderr)
+            print()
+            print("Fix the .env file and try again.", file=sys.stderr)
+            return 1
+        
         print(f"Region: {region}")
         print(f"Log groups: {log_groups}")
         print()
