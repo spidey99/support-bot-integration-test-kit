@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 import json
 from dataclasses import asdict
 from datetime import datetime, timezone
@@ -53,10 +54,13 @@ def write_run_artifacts(
     mermaid: str,
     case: Optional["CaseConfig"] = None,
     invariant_results: Optional[Sequence["InvariantResult"]] = None,
+    agent_response: Optional[dict] = None,
+    mode: str = "dev-fixtures",
 ) -> None:
     """Write all artifacts for a run.
 
     Creates:
+    - index.html: Top-level HTML report with links to viewers
     - spans.jsonl: JSONL of all spans
     - payloads/<span_id>.request.json: Request payloads
     - payloads/<span_id>.response.json: Response payloads
@@ -135,9 +139,20 @@ def write_run_artifacts(
     mini_timeline = render_mini_timeline(trace)
     (out_dir / "timeline-thumbnail.svg").write_text(mini_timeline, encoding="utf-8")
 
-    # Write report
+    # Write markdown report
     report = _build_report(trace=trace, case=case, invariant_results=invariant_results)
     (out_dir / "report.md").write_text(report, encoding="utf-8")
+
+    # Write top-level HTML report (index.html)
+    html_report = render_run_report_html(
+        trace=trace,
+        case=case,
+        invariant_results=invariant_results,
+        agent_response=agent_response,
+        mode=mode,
+        artifacts_dir=out_dir,
+    )
+    (out_dir / "index.html").write_text(html_report, encoding="utf-8")
 
 
 def _build_report(
@@ -392,6 +407,415 @@ def write_compare_artifacts(
     (out_dir / "comparison.json").write_text(
         json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
     )
+
+
+def render_run_report_html(
+    *,
+    trace: Trace,
+    case: Optional["CaseConfig"] = None,
+    invariant_results: Optional[Sequence["InvariantResult"]] = None,
+    agent_response: Optional[dict] = None,
+    mode: str = "dev-fixtures",
+    artifacts_dir: Optional[Path] = None,
+) -> str:
+    """Render a top-level HTML report for a single test run.
+    
+    Similar to soak-report.html but for individual test runs.
+    Shows summary stats, links to trace viewer and timeline, and span details.
+    """
+    from datetime import datetime, timezone
+    
+    # Calculate stats
+    span_count = len(trace.spans)
+    components = sorted(set(s.component for s in trace.spans))
+    operations = sorted(set(s.operation for s in trace.spans))
+    error_spans = [s for s in trace.spans if s.error]
+    
+    # Invariant summary
+    inv_passed = sum(1 for r in (invariant_results or []) if r.passed)
+    inv_total = len(invariant_results or [])
+    all_pass = inv_passed == inv_total and inv_total > 0
+    
+    # Case info
+    case_id = case.id if case else "Unknown"
+    case_name = case.name if case else "Unnamed Test"
+    entrypoint = case.entrypoint.type if case else "unknown"
+    
+    # Agent response preview
+    response_preview = ""
+    if agent_response:
+        if isinstance(agent_response, dict):
+            resp_text = agent_response.get("response", agent_response.get("completion", ""))
+            if resp_text:
+                response_preview = str(resp_text)[:200] + ("..." if len(str(resp_text)) > 200 else "")
+    
+    # Calculate duration if we have timestamps
+    duration_ms = 0
+    if trace.spans:
+        timestamps = [s.ts_start for s in trace.spans if s.ts_start]
+        # Duration is calculated from span timing if available
+        # (ts_start to ts_end per span could be summed, but for now just note span count)
+    
+    # Relative path for artifacts
+    artifacts_rel = "."
+    
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ITK Run Report — {case_id}</title>
+    <style>
+        :root {{
+            --bg-primary: #1a1a2e;
+            --bg-secondary: #16213e;
+            --bg-card: #0f3460;
+            --text-primary: #eee;
+            --text-secondary: #aaa;
+            --accent-green: #4ade80;
+            --accent-red: #f87171;
+            --accent-yellow: #fbbf24;
+            --accent-blue: #60a5fa;
+            --accent-purple: #a78bfa;
+            --border-color: #334155;
+        }}
+        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+        body {{
+            font-family: system-ui, -apple-system, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            padding: 20px;
+            min-height: 100vh;
+        }}
+        .header {{
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 24px;
+            flex-wrap: wrap;
+            gap: 12px;
+        }}
+        h1 {{
+            font-size: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }}
+        h1 .status {{
+            font-size: 0.75rem;
+            padding: 4px 12px;
+            border-radius: 4px;
+            text-transform: uppercase;
+            font-weight: bold;
+        }}
+        h1 .status.pass {{ background: var(--accent-green); color: #000; }}
+        h1 .status.fail {{ background: var(--accent-red); color: #fff; }}
+        .meta {{
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+        }}
+        
+        .stats-grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 12px;
+            margin-bottom: 24px;
+        }}
+        .stat-card {{
+            background: var(--bg-card);
+            padding: 16px;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+        }}
+        .stat-card .value {{
+            font-size: 2rem;
+            font-weight: bold;
+        }}
+        .stat-card .label {{
+            color: var(--text-secondary);
+            font-size: 0.8rem;
+            margin-top: 4px;
+        }}
+        .stat-card.pass .value {{ color: var(--accent-green); }}
+        .stat-card.fail .value {{ color: var(--accent-red); }}
+        .stat-card.info .value {{ color: var(--accent-blue); }}
+        
+        .section {{
+            background: var(--bg-secondary);
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border: 1px solid var(--border-color);
+        }}
+        .section h2 {{
+            font-size: 1.1rem;
+            margin-bottom: 16px;
+            color: var(--accent-blue);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }}
+        
+        .viewer-links {{
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }}
+        .viewer-link {{
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 20px;
+            background: var(--bg-card);
+            border-radius: 8px;
+            text-decoration: none;
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+            transition: all 0.2s;
+        }}
+        .viewer-link:hover {{
+            border-color: var(--accent-blue);
+            background: #1a4670;
+        }}
+        .viewer-link .icon {{
+            font-size: 1.5rem;
+        }}
+        .viewer-link .label {{
+            font-weight: 500;
+        }}
+        .viewer-link .desc {{
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+        }}
+        
+        .response-preview {{
+            background: var(--bg-card);
+            padding: 16px;
+            border-radius: 8px;
+            font-family: ui-monospace, monospace;
+            font-size: 0.9rem;
+            white-space: pre-wrap;
+            word-break: break-word;
+            border-left: 3px solid var(--accent-purple);
+        }}
+        
+        table {{
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85rem;
+        }}
+        th, td {{
+            padding: 10px 12px;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }}
+        th {{
+            background: var(--bg-card);
+            font-weight: 500;
+            color: var(--text-secondary);
+        }}
+        tr:hover td {{
+            background: rgba(96, 165, 250, 0.1);
+        }}
+        .badge {{
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }}
+        .badge.pass {{ background: var(--accent-green); color: #000; }}
+        .badge.fail {{ background: var(--accent-red); color: #fff; }}
+        .badge.lambda {{ background: #ff9900; color: #000; }}
+        .badge.bedrock {{ background: #8b5cf6; color: #fff; }}
+        .badge.agent {{ background: #00a4ef; color: #fff; }}
+        .badge.default {{ background: #6b7280; color: #fff; }}
+        
+        .invariants-list {{
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }}
+        .invariant {{
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            background: var(--bg-card);
+            border-radius: 6px;
+        }}
+        .invariant.pass {{ border-left: 3px solid var(--accent-green); }}
+        .invariant.fail {{ border-left: 3px solid var(--accent-red); }}
+        .invariant .icon {{ font-size: 1.1rem; }}
+        .invariant .name {{ font-family: ui-monospace, monospace; }}
+        
+        .tag-list {{
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }}
+        .tag {{
+            background: var(--bg-card);
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            font-family: ui-monospace, monospace;
+        }}
+        
+        footer {{
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 1px solid var(--border-color);
+            color: var(--text-secondary);
+            font-size: 0.8rem;
+            text-align: center;
+        }}
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div>
+            <h1>
+                📊 {case_id}
+                <span class="status {'pass' if all_pass else 'fail'}">{'PASS' if all_pass else 'FAIL'}</span>
+            </h1>
+            <div class="meta">{case_name} • {entrypoint} • {mode}</div>
+        </div>
+        <div class="meta">{timestamp}</div>
+    </div>
+    
+    <div class="stats-grid">
+        <div class="stat-card info">
+            <div class="value">{span_count}</div>
+            <div class="label">Spans</div>
+        </div>
+        <div class="stat-card info">
+            <div class="value">{len(components)}</div>
+            <div class="label">Components</div>
+        </div>
+        <div class="stat-card {'pass' if inv_passed == inv_total else 'fail'}">
+            <div class="value">{inv_passed}/{inv_total}</div>
+            <div class="label">Invariants</div>
+        </div>
+        <div class="stat-card {'fail' if error_spans else 'pass'}">
+            <div class="value">{len(error_spans)}</div>
+            <div class="label">Errors</div>
+        </div>
+    </div>
+    
+    <div class="section">
+        <h2>🔗 Visualizations</h2>
+        <div class="viewer-links">
+            <a href="{artifacts_rel}/trace-viewer.html" class="viewer-link">
+                <span class="icon">🔍</span>
+                <div>
+                    <div class="label">Trace Viewer</div>
+                    <div class="desc">Interactive sequence diagram</div>
+                </div>
+            </a>
+            <a href="{artifacts_rel}/timeline.html" class="viewer-link">
+                <span class="icon">⏱️</span>
+                <div>
+                    <div class="label">Timeline</div>
+                    <div class="desc">Temporal span visualization</div>
+                </div>
+            </a>
+            <a href="{artifacts_rel}/sequence.html" class="viewer-link">
+                <span class="icon">📐</span>
+                <div>
+                    <div class="label">Sequence Diagram</div>
+                    <div class="desc">Legacy HTML diagram</div>
+                </div>
+            </a>
+        </div>
+    </div>
+    
+    {f'''<div class="section">
+        <h2>💬 Agent Response</h2>
+        <div class="response-preview">{html.escape(response_preview) if response_preview else "(No response captured)"}</div>
+    </div>''' if agent_response else ''}
+    
+    <div class="section">
+        <h2>✅ Invariants</h2>
+        <div class="invariants-list">
+            {''.join(f'''<div class="invariant {'pass' if r.passed else 'fail'}">
+                <span class="icon">{'✅' if r.passed else '❌'}</span>
+                <span class="name">{r.name}</span>
+            </div>''' for r in (invariant_results or []))}
+        </div>
+    </div>
+    
+    <div class="section">
+        <h2>🏷️ Components</h2>
+        <div class="tag-list">
+            {''.join(f'<span class="tag">{c}</span>' for c in components)}
+        </div>
+    </div>
+    
+    <div class="section">
+        <h2>📋 Spans</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Span ID</th>
+                    <th>Component</th>
+                    <th>Operation</th>
+                    <th>Latency</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {''.join(_render_span_row(s) for s in trace.spans)}
+            </tbody>
+        </table>
+    </div>
+    
+    <div class="section">
+        <h2>📁 Artifacts</h2>
+        <table>
+            <tbody>
+                <tr><td><a href="{artifacts_rel}/spans.jsonl" style="color: var(--accent-blue);">spans.jsonl</a></td><td>Raw span data (JSONL)</td></tr>
+                <tr><td><a href="{artifacts_rel}/sequence.mmd" style="color: var(--accent-blue);">sequence.mmd</a></td><td>Mermaid sequence diagram</td></tr>
+                <tr><td><a href="{artifacts_rel}/report.md" style="color: var(--accent-blue);">report.md</a></td><td>Markdown report</td></tr>
+                <tr><td><a href="{artifacts_rel}/payloads/" style="color: var(--accent-blue);">payloads/</a></td><td>Request/response JSON files</td></tr>
+            </tbody>
+        </table>
+    </div>
+    
+    <footer>
+        Generated by ITK (Integration Test Kit) • <a href="https://github.com/spidey99/support-bot-integration-test-kit" style="color: var(--accent-blue);">GitHub</a>
+    </footer>
+</body>
+</html>"""
+
+
+def _render_span_row(s: Span) -> str:
+    """Render a single span table row."""
+    component_type = s.component.split(":")[0] if ":" in s.component else s.component
+    badge_class = component_type.lower() if component_type.lower() in ("lambda", "bedrock", "agent") else "default"
+    
+    # Calculate latency from ts_start/ts_end if available
+    latency = "—"
+    if s.ts_start and s.ts_end:
+        try:
+            from datetime import datetime
+            start = datetime.fromisoformat(s.ts_start.replace("Z", "+00:00"))
+            end = datetime.fromisoformat(s.ts_end.replace("Z", "+00:00"))
+            ms = (end - start).total_seconds() * 1000
+            latency = f"{ms:.1f}ms"
+        except (ValueError, TypeError):
+            pass
+    
+    status = "❌ Error" if s.error else "✅ OK"
+    return f"""<tr>
+        <td><code>{s.span_id[:16]}...</code></td>
+        <td><span class="badge {badge_class}">{component_type}</span> {s.component}</td>
+        <td>{s.operation}</td>
+        <td>{latency}</td>
+        <td>{status}</td>
+    </tr>"""
 
 
 def _build_comparison_markdown(result: "CompareResult") -> str:

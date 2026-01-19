@@ -73,14 +73,65 @@ def validate_case_against_schema(data: dict[str, Any]) -> list[str]:
 
 
 def load_case(path: Path) -> CaseConfig:
-    """Load a case YAML file and return a validated CaseConfig."""
-    text = path.read_text(encoding="utf-8")
-    data = yaml.safe_load(text)
+    """Load a case YAML file and return a validated CaseConfig.
+    
+    Args:
+        path: Path to the case YAML file
+        
+    Returns:
+        CaseConfig: Parsed and validated case configuration
+        
+    Raises:
+        FileNotFoundError: If the case file doesn't exist
+        ValueError: If the YAML is malformed or fails schema validation
+    """
+    if not path.exists():
+        raise FileNotFoundError(
+            f"Case file not found: {path}\n\n"
+            f"To create a case file, see: docs/02-test-case-format.md\n"
+            f"Or copy from: cases/example-001.yaml"
+        )
+    
+    try:
+        text = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as e:
+        raise ValueError(
+            f"Cannot read case file {path}: encoding error.\n"
+            f"Ensure the file is saved as UTF-8."
+        ) from e
+    
+    try:
+        data = yaml.safe_load(text)
+    except yaml.YAMLError as e:
+        raise ValueError(
+            f"Invalid YAML in case file {path}:\n{e}\n\n"
+            f"Common issues:\n"
+            f"  - Incorrect indentation (use 2 spaces)\n"
+            f"  - Missing quotes around special characters\n"
+            f"  - Tabs instead of spaces"
+        ) from e
+    
+    if data is None:
+        raise ValueError(
+            f"Case file is empty: {path}\n\n"
+            f"See cases/example-001.yaml for the expected format."
+        )
+    
+    if not isinstance(data, dict):
+        raise ValueError(
+            f"Case file must contain a YAML mapping, got {type(data).__name__}: {path}\n\n"
+            f"See cases/example-001.yaml for the expected format."
+        )
 
     # Validate against schema
     errors = validate_case_against_schema(data)
     if errors:
-        raise ValueError(f"Case validation failed:\n" + "\n".join(errors))
+        error_details = "\n".join(f"  - {e}" for e in errors[:5])  # Show first 5
+        raise ValueError(
+            f"Case validation failed for {path}:\n{error_details}\n\n"
+            f"Required fields: id, name, entrypoint\n"
+            f"See cases/example-001.yaml for the expected format."
+        )
 
     entrypoint_data = data["entrypoint"]
     entrypoint = EntrypointConfig(

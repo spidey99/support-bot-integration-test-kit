@@ -1,0 +1,20 @@
+id: test-draft-version
+name: Test draft version targeting (for development)
+entrypoint:
+  type: bedrock_invoke_agent
+  target:
+    agent_id: ${ITK_WORKER_AGENT_ID}
+    agent_version: "draft"  # Uses TSTALIASID (built-in test alias)
+    region: us-east-1
+  payload:
+    inputText: "Hello, testing draft mode"
+    enableTrace: true
+expected:
+  invariants:
+    - name: has_spans
+    - name: has_entrypoint
+notes:
+  description: |
+    This case uses the DRAFT version via TSTALIASID.
+    Useful for testing unprepared changes during development.
+    WARNING: Draft version may be unstable.

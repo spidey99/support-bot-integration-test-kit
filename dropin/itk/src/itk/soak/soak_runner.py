@@ -37,6 +37,7 @@ class IterationResult:
     retry_count: int = 0
     error_count: int = 0
     artifacts_dir: Optional[str] = None
+    exception: Optional[str] = None
 
 
 def detect_throttle_in_spans(spans: list[dict]) -> list[ThrottleEvent]:
@@ -317,11 +318,100 @@ def run_soak_with_case(
                 duration_ms=elapsed,
                 retry_count=result.retry_count,
                 error_count=result.error_count,
-                artifacts_dir=str(iter_out_dir) if iter_out_dir else None,
+                artifacts_dir=result.artifacts_dir,  # Use case-specific dir from CaseResult
             )
         else:
-            # Live mode - not implemented in Tier-2
-            raise NotImplementedError("Live mode not available in Tier-2")
+            # Live mode - invoke agent and capture trace
+            from ..cli import _run_live_mode
+            from ..config import load_config, set_config
+            
+            # Load config for live mode
+            live_config = load_config(mode="live")
+            set_config(live_config)
+            
+            try:
+                trace, agent_response = _run_live_mode(case_path, live_config)
+                elapsed = (time.monotonic() - start) * 1000
+                
+                # Extract spans for throttle detection
+                spans = [
+                    {
+                        "span_id": s.span_id,
+                        "error": str(s.error) if s.error else "",
+                        "status_code": None,
+                        "retry_count": s.attempt - 1 if s.attempt else 0,
+                        "attributes": {},
+                    }
+                    for s in trace.spans
+                ]
+                
+                # Check for errors in spans
+                error_count = sum(1 for s in trace.spans if s.error)
+                retry_count = sum((s.attempt or 1) - 1 for s in trace.spans)
+                
+                # Determine status
+                if error_count > 0:
+                    status = "warning" if retry_count > 0 else "failed"
+                elif retry_count > 0:
+                    status = "warning"
+                else:
+                    status = "passed"
+                
+                # Write artifacts if detailed
+                if iter_out_dir:
+                    import json
+                    from ..cases.loader import load_case
+                    from ..diagrams.mermaid_seq import render_mermaid_sequence
+                    from ..utils.artifacts import write_run_artifacts
+                    
+                    # Load case config for artifact generation
+                    case = load_case(case_path)
+                    
+                    # Create case-specific output dir (same structure as dev-fixtures)
+                    # This gives us: iterations/0000/{case_id}/trace-viewer.html
+                    case_out_dir = iter_out_dir / case.id
+                    case_out_dir.mkdir(parents=True, exist_ok=True)
+                    
+                    # Generate mermaid diagram
+                    mermaid = render_mermaid_sequence(trace)
+                    
+                    # Write full artifacts (trace-viewer.html, timeline.html, etc.)
+                    write_run_artifacts(
+                        out_dir=case_out_dir,
+                        trace=trace,
+                        mermaid=mermaid,
+                        case=case,
+                    )
+                    
+                    # Also write agent response to case dir
+                    (case_out_dir / "agent-response.json").write_text(
+                        json.dumps(agent_response, indent=2), encoding="utf-8"
+                    )
+                    
+                    # Update iter_out_dir to case_out_dir for correct link generation
+                    iter_out_dir = case_out_dir
+                
+                return IterationResult(
+                    passed=error_count == 0,
+                    status=status,
+                    spans=spans,
+                    duration_ms=elapsed,
+                    retry_count=retry_count,
+                    error_count=error_count,
+                    artifacts_dir=str(iter_out_dir) if iter_out_dir else None,
+                )
+            except Exception as e:
+                elapsed = (time.monotonic() - start) * 1000
+                return IterationResult(
+                    passed=False,
+                    status="error",
+                    spans=[],
+                    duration_ms=elapsed,
+                    retry_count=0,
+                    error_count=1,
+                    exception=str(e),
+                    artifacts_dir=str(iter_out_dir) if iter_out_dir else None,
+                )
 
     return run_soak(
         config=config_with_name,

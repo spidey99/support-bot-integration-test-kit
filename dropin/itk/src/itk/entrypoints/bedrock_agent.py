@@ -16,13 +16,44 @@ from typing import Any, Iterator, Optional
 
 # Note: boto3 import is deferred to runtime to avoid issues in offline mode
 
+# Default timeout for agent invocations (seconds)
+DEFAULT_INVOKE_TIMEOUT = 60
+
+
+class AgentTimeoutError(Exception):
+    """Raised when agent invocation times out."""
+
+    def __init__(self, message: str, timeout_seconds: int):
+        super().__init__(message)
+        self.message = message
+        self.timeout_seconds = timeout_seconds
+
+
+class AgentCredentialsError(Exception):
+    """Raised when AWS credentials are expired or invalid."""
+
+    def __init__(self, message: str, fix_command: str):
+        super().__init__(message)
+        self.message = message
+        self.fix_command = fix_command
+
 
 @dataclass(frozen=True)
 class BedrockAgentTarget:
-    """Configuration for a Bedrock Agent target."""
+    """Configuration for a Bedrock Agent target.
+    
+    Supports three targeting modes:
+    1. Alias mode (traditional): agent_id + agent_alias_id
+    2. Version mode: agent_id + agent_version (specific version number)
+    3. Latest mode: agent_id + agent_version="latest" (auto-resolves)
+    
+    Note: Bedrock API requires an alias for invocation. When using version mode,
+    we create/use a temporary alias pointing to that version.
+    """
 
     agent_id: str
-    agent_alias_id: str
+    agent_alias_id: Optional[str] = None
+    agent_version: Optional[str] = None  # "latest", "draft", or specific version
     region: Optional[str] = None
 
 
@@ -48,15 +79,18 @@ class BedrockAgentAdapter:
         self,
         target: BedrockAgentTarget,
         offline: bool = False,
+        timeout_seconds: int = DEFAULT_INVOKE_TIMEOUT,
     ):
         """Initialize the Bedrock Agent adapter.
 
         Args:
             target: Target configuration
             offline: If True, operations return mock responses
+            timeout_seconds: Timeout for agent invocations (default: 60)
         """
         self._target = target
         self._offline = offline
+        self._timeout_seconds = timeout_seconds
         self._client: Any = None
 
     def _validate_target(self) -> None:
@@ -64,13 +98,26 @@ class BedrockAgentAdapter:
         if not self._target.agent_id:
             raise ValueError("agent_id is required")
 
-        if not self._target.agent_alias_id:
-            raise ValueError("agent_alias_id is required")
-
-        if self._target.agent_id == "REPLACE_ME" or self._target.agent_alias_id == "REPLACE_ME":
+        # Must have either alias_id or version
+        has_alias = self._target.agent_alias_id and self._target.agent_alias_id.strip()
+        has_version = self._target.agent_version and self._target.agent_version.strip()
+        
+        if not has_alias and not has_version:
             raise ValueError(
-                "agent_id or agent_alias_id has placeholder value 'REPLACE_ME'. "
-                "Configure the actual values in the case YAML."
+                "Either agent_alias_id or agent_version is required. "
+                "Use agent_version='latest' to auto-select the newest PREPARED version."
+            )
+
+        if self._target.agent_id == "REPLACE_ME":
+            raise ValueError(
+                "agent_id has placeholder value 'REPLACE_ME'. "
+                "Configure the actual value in the case YAML."
+            )
+        
+        if has_alias and self._target.agent_alias_id == "REPLACE_ME":
+            raise ValueError(
+                "agent_alias_id has placeholder value 'REPLACE_ME'. "
+                "Configure the actual value in the case YAML or use agent_version='latest'."
             )
 
     def _get_client(self) -> Any:
@@ -80,10 +127,19 @@ class BedrockAgentAdapter:
 
         if self._client is None:
             import boto3
+            from botocore.config import Config
+
+            # Configure timeouts
+            config = Config(
+                connect_timeout=10,
+                read_timeout=self._timeout_seconds,
+                retries={"max_attempts": 2},
+            )
 
             self._client = boto3.client(
                 "bedrock-agent-runtime",
                 region_name=self._target.region,
+                config=config,
             )
         return self._client
 
@@ -128,6 +184,8 @@ class BedrockAgentAdapter:
                 timestamp=datetime.now(timezone.utc).isoformat(),
             )
 
+        from botocore.exceptions import ClientError, ReadTimeoutError
+
         client = self._get_client()
 
         # Build session state if attributes provided
@@ -149,24 +207,51 @@ class BedrockAgentAdapter:
         if session_state:
             invoke_params["sessionState"] = session_state
 
-        response = client.invoke_agent(**invoke_params)
+        try:
+            response = client.invoke_agent(**invoke_params)
+        except ReadTimeoutError as e:
+            raise AgentTimeoutError(
+                f"Agent invocation timed out after {self._timeout_seconds}s. "
+                f"Try a simpler prompt or increase timeout.",
+                timeout_seconds=self._timeout_seconds,
+            ) from e
+        except ClientError as e:
+            error_code = e.response.get("Error", {}).get("Code", "")
+            if error_code == "ExpiredTokenException":
+                raise AgentCredentialsError(
+                    "AWS session token has expired",
+                    fix_command="aws sso login  # or refresh your MFA session",
+                ) from e
+            if error_code == "ResourceNotFoundException":
+                raise RuntimeError(
+                    f"Agent '{self._target.agent_id}' or alias '{self._target.agent_alias_id}' not found. "
+                    f"Run 'itk discover' to verify agent configuration."
+                ) from e
+            raise
 
         # Process the streaming response
         completion_parts: list[str] = []
         traces: list[dict[str, Any]] = []
         citations: list[dict[str, Any]] = []
 
-        for event in response.get("completion", []):
-            # Handle different event types in the stream
-            if "chunk" in event:
-                chunk = event["chunk"]
-                if "bytes" in chunk:
-                    completion_parts.append(chunk["bytes"].decode("utf-8"))
-                if "attribution" in chunk:
-                    citations.extend(chunk["attribution"].get("citations", []))
+        try:
+            for event in response.get("completion", []):
+                # Handle different event types in the stream
+                if "chunk" in event:
+                    chunk = event["chunk"]
+                    if "bytes" in chunk:
+                        completion_parts.append(chunk["bytes"].decode("utf-8"))
+                    if "attribution" in chunk:
+                        citations.extend(chunk["attribution"].get("citations", []))
 
-            if "trace" in event:
-                traces.append(event["trace"])
+                if "trace" in event:
+                    traces.append(event["trace"])
+        except ReadTimeoutError as e:
+            raise AgentTimeoutError(
+                f"Agent response stream timed out after {self._timeout_seconds}s. "
+                f"Partial completion received: {len(completion_parts)} chunks.",
+                timeout_seconds=self._timeout_seconds,
+            ) from e
 
         return BedrockAgentResponse(
             session_id=session_id,

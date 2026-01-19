@@ -142,6 +142,45 @@ class TestParseEnvFile:
 
         assert result == {"VALID": "value", "ANOTHER": "okay"}
 
+    def test_parse_export_prefix(self, tmp_path: Path) -> None:
+        """Should handle 'export KEY=value' format (AWS SSO paste)."""
+        env_file = tmp_path / ".env"
+        env_file.write_text(
+            'export AWS_ACCESS_KEY_ID="AKIAIOSFODNN7EXAMPLE"\n'
+            'export AWS_SECRET_ACCESS_KEY="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"\n'
+            'export AWS_SESSION_TOKEN="token123"\n'
+        )
+
+        result = parse_env_file(env_file)
+
+        assert result["AWS_ACCESS_KEY_ID"] == "AKIAIOSFODNN7EXAMPLE"
+        assert result["AWS_SECRET_ACCESS_KEY"] == "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+        assert result["AWS_SESSION_TOKEN"] == "token123"
+
+    def test_parse_mixed_export_and_regular(self, tmp_path: Path) -> None:
+        """Should handle mix of export and regular KEY=value."""
+        env_file = tmp_path / ".env"
+        env_file.write_text(
+            "ITK_MODE=live\n"
+            "export AWS_ACCESS_KEY_ID=AKIAEXAMPLE\n"
+            "ITK_AWS_REGION=us-east-1\n"
+        )
+
+        result = parse_env_file(env_file)
+
+        assert result["ITK_MODE"] == "live"
+        assert result["AWS_ACCESS_KEY_ID"] == "AKIAEXAMPLE"
+        assert result["ITK_AWS_REGION"] == "us-east-1"
+
+    def test_parse_export_unquoted(self, tmp_path: Path) -> None:
+        """Should handle 'export KEY=value' without quotes."""
+        env_file = tmp_path / ".env"
+        env_file.write_text("export MY_VAR=some_value\n")
+
+        result = parse_env_file(env_file)
+
+        assert result["MY_VAR"] == "some_value"
+
 
 class TestResolveTargetsFromCommand:
     """Tests for resolve_targets_from_command function."""
@@ -208,10 +247,17 @@ class TestLoadConfig:
             config = load_config(mode="dev-fixtures")
             assert config.mode == Mode.DEV_FIXTURES
 
-    def test_load_config_from_env_var(self) -> None:
-        with patch.dict(os.environ, {"ITK_MODE": "dev-fixtures"}, clear=True):
-            config = load_config()
-            assert config.mode == Mode.DEV_FIXTURES
+    def test_load_config_from_env_var(self, tmp_path: Path) -> None:
+        # Change to a temp dir without .env file to prevent auto-discovery
+        import os as os_module
+        old_cwd = os_module.getcwd()
+        try:
+            os_module.chdir(tmp_path)
+            with patch.dict(os.environ, {"ITK_MODE": "dev-fixtures"}, clear=True):
+                config = load_config()
+                assert config.mode == Mode.DEV_FIXTURES
+        finally:
+            os_module.chdir(old_cwd)
 
     def test_load_config_cli_overrides_env(self) -> None:
         with patch.dict(os.environ, {"ITK_MODE": "dev-fixtures"}, clear=True):

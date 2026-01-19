@@ -32,8 +32,15 @@ ENV/
 
 # Environment files (keep examples)
 .env
+.env.*
 !.env.example
 !.env.itk.example
+
+# Secrets and credentials
+*.pem
+*.key
+*credentials*
+*secret*
 
 # Test artifacts (keep examples)
 .pytest_cache/
@@ -44,14 +51,23 @@ htmlcov/
 .DS_Store
 Thumbs.db
 
-# ITK artifacts (generated during runs)
-# Keep example artifacts but ignore test-generated ones
-artifacts/run-*/
-artifacts/audit-*/
-artifacts/demo-*/
-artifacts/soak-*/
-artifacts/compare-*/
-artifacts/generated-*
-artifacts/soak-*/
-!artifacts/compare-baseline/
-!artifacts/comparison-001/
+# ITK artifacts (generated during runs - don't commit test output)
+**/artifacts/
+!**/artifacts/.gitkeep
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfplan
+tfplan
+*.exe
+
+# Lambda zips
+*.zip
+
+# Screenshots
+screenshots/
+
+# Infra test files
+infra/test-*.json

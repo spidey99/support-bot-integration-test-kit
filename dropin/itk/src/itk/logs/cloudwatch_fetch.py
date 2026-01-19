@@ -6,11 +6,20 @@ when AWS credentials are available.
 """
 from __future__ import annotations
 
+import sys
 import time
 from dataclasses import dataclass
 from typing import Any, Optional, Sequence
 
 # Note: boto3 import is deferred to runtime to avoid issues in offline mode
+
+
+class CredentialsExpiredError(Exception):
+    """Raised when AWS credentials have expired."""
+    
+    def __init__(self, message: str, fix_command: str | None = None):
+        super().__init__(message)
+        self.fix_command = fix_command
 
 
 @dataclass(frozen=True)
@@ -90,24 +99,54 @@ class CloudWatchLogsClient:
 
         Raises:
             NotImplementedError: In offline mode
+            CredentialsExpiredError: If AWS credentials have expired
             TimeoutError: If query doesn't complete within max_wait_seconds
             RuntimeError: If query fails
         """
+        from botocore.exceptions import ClientError
+        
         client = self._get_client()
 
-        # Start the query
-        start_response = client.start_query(
-            logGroupNames=list(query.log_groups),
-            startTime=query.start_time_ms // 1000,  # API expects seconds
-            endTime=query.end_time_ms // 1000,
-            queryString=query.query_string,
-        )
+        # Start the query with credential error handling
+        try:
+            start_response = client.start_query(
+                logGroupNames=list(query.log_groups),
+                startTime=query.start_time_ms // 1000,  # API expects seconds
+                endTime=query.end_time_ms // 1000,
+                queryString=query.query_string,
+            )
+        except ClientError as e:
+            error_code = e.response.get("Error", {}).get("Code", "")
+            if error_code == "ExpiredTokenException":
+                raise CredentialsExpiredError(
+                    "AWS session token has expired",
+                    fix_command="aws sso login  # or refresh your MFA session",
+                ) from e
+            if error_code == "ResourceNotFoundException":
+                # Log group doesn't exist
+                missing = ", ".join(query.log_groups[:3])
+                raise RuntimeError(
+                    f"Log group(s) not found: {missing}. "
+                    f"Run 'itk discover' to find available log groups."
+                ) from e
+            raise
+        
         query_id = start_response["queryId"]
 
         # Poll for results
         elapsed = 0.0
         while elapsed < max_wait_seconds:
-            result_response = client.get_query_results(queryId=query_id)
+            try:
+                result_response = client.get_query_results(queryId=query_id)
+            except ClientError as e:
+                error_code = e.response.get("Error", {}).get("Code", "")
+                if error_code == "ExpiredTokenException":
+                    raise CredentialsExpiredError(
+                        "AWS session token expired during query",
+                        fix_command="aws sso login  # then re-run the command",
+                    ) from e
+                raise
+            
             status = result_response["status"]
 
             if status == "Complete":

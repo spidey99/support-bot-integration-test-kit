@@ -1,24 +1,88 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "itk.span.schema.json",
+  "title": "ITK Span Schema",
+  "description": "Schema for a single span log entry representing one operation in a distributed trace",
   "type": "object",
   "required": ["span_id", "component", "operation"],
   "properties": {
-    "span_id": {"type": "string"},
-    "parent_span_id": {"type": ["string", "null"]},
-    "component": {"type": "string"},
-    "operation": {"type": "string"},
-    "ts_start": {"type": ["string", "null"]},
-    "ts_end": {"type": ["string", "null"]},
-    "attempt": {"type": ["integer", "null"]},
-    "itk_trace_id": {"type": ["string", "null"]},
-    "lambda_request_id": {"type": ["string", "null"]},
-    "xray_trace_id": {"type": ["string", "null"]},
-    "sqs_message_id": {"type": ["string", "null"]},
-    "bedrock_session_id": {"type": ["string", "null"]},
-    "request": {"type": ["object", "null"]},
-    "response": {"type": ["object", "null"]},
-    "error": {"type": ["object", "null"]}
+    "span_id": {
+      "type": "string",
+      "description": "Unique identifier for this span. Generate with UUID or nanoid."
+    },
+    "parent_span_id": {
+      "type": ["string", "null"],
+      "description": "ID of the calling span. Null for root spans (entry points like Lambda handler)."
+    },
+    "component": {
+      "type": "string",
+      "description": "Type of service/component. Values: lambda, sqs, bedrock_agent, bedrock_model, dynamodb, s3, http_client, step_functions, eventbridge"
+    },
+    "operation": {
+      "type": "string",
+      "description": "The specific operation performed. Examples: Invoke, SendMessage, GetItem, InvokeAgent, InvokeModel"
+    },
+    "ts_start": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when operation started. Include milliseconds for precision."
+    },
+    "ts_end": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when operation completed. Used to calculate duration."
+    },
+    "attempt": {
+      "type": ["integer", "null"],
+      "minimum": 1,
+      "description": "Retry attempt number. 1 = first try, 2+ = retries after failure."
+    },
+    "itk_trace_id": {
+      "type": ["string", "null"],
+      "description": "Custom trace ID passed through your system for end-to-end correlation."
+    },
+    "lambda_request_id": {
+      "type": ["string", "null"],
+      "description": "AWS Lambda request ID from context.aws_request_id. Essential for CloudWatch correlation."
+    },
+    "xray_trace_id": {
+      "type": ["string", "null"],
+      "description": "AWS X-Ray trace ID if X-Ray tracing is enabled. Format: 1-{unix_epoch}-{96_bit_identifier}"
+    },
+    "sqs_message_id": {
+      "type": ["string", "null"],
+      "description": "SQS message ID when processing queue messages."
+    },
+    "bedrock_session_id": {
+      "type": ["string", "null"],
+      "description": "Bedrock agent session ID for multi-turn conversations."
+    },
+    "request": {
+      "type": ["object", "null"],
+      "description": "Input payload sent to the operation. Redact sensitive fields before logging."
+    },
+    "response": {
+      "type": ["object", "null"],
+      "description": "Output received from the operation. Redact PII and sensitive data."
+    },
+    "error": {
+      "type": ["object", "null"],
+      "description": "Error object if the operation failed. Include code, message, and retryable flag.",
+      "properties": {
+        "code": {
+          "type": "string",
+          "description": "Error code or exception class name"
+        },
+        "message": {
+          "type": "string",
+          "description": "Human-readable error message"
+        },
+        "retryable": {
+          "type": "boolean",
+          "description": "Whether the error is transient and can be retried"
+        }
+      }
+    }
   },
   "additionalProperties": true
 }

@@ -156,6 +156,103 @@
 
 ---
 
+## Phase 15 — Reference infrastructure library 🆕
+> **Goal**: Build a library of pre-canned AWS infrastructure patterns that produce
+> significantly different log structures, enabling comprehensive log processing coverage.
+
+### Motivation:
+- Current testing uses a single Bedrock agent pattern
+- Real-world systems have diverse architectures: Step Functions, API Gateway, EventBridge, etc.
+- Need reference implementations that produce varied log formats for parser testing
+- Infrastructure should be spin-up-able, maskable (no secrets), and safe for CI
+
+### AWS Example Sources to Evaluate:
+- [ ] AWS Samples GitHub repos (aws-samples/*)
+- [ ] AWS Solutions Constructs (CDK patterns)
+- [ ] Serverless Application Repository examples
+- [ ] AWS Well-Architected Labs
+
+### Target Architecture Patterns:
+- [ ] **Pattern A: API Gateway → Lambda → DynamoDB** (REST API pattern)
+  - Logs: API GW access logs, Lambda structured logs, DynamoDB streams
+- [ ] **Pattern B: SQS → Lambda → SNS** (async messaging pattern)
+  - Logs: SQS delivery logs, Lambda processing, SNS notifications
+- [ ] **Pattern C: Step Functions orchestration** (workflow pattern)
+  - Logs: State machine execution history, task logs, CloudWatch events
+- [ ] **Pattern D: EventBridge → Multiple targets** (event-driven pattern)
+  - Logs: Event patterns, rule matches, target invocations
+- [ ] **Pattern E: Kinesis → Lambda → S3** (streaming pattern)
+  - Logs: Shard iterator logs, batch processing, S3 put events
+
+### Infrastructure as Code:
+- [ ] Create `infra/` directory with CDK/SAM templates
+- [ ] Each pattern has: template, deploy script, teardown script
+- [ ] Cost estimates per pattern (target: <$1/day when idle)
+- [ ] Auto-shutdown after N hours (prevent bill shock)
+
+### Log Fixture Generation:
+- [ ] Scripts to invoke each pattern and capture logs
+- [ ] Masking/redaction pipeline to sanitize captured logs
+- [ ] Save as fixtures for offline testing
+- [ ] Document expected span structure per pattern
+
+### Failure Injection:
+- [ ] Each pattern includes failure modes (timeouts, throttles, errors)
+- [ ] Chaos testing hooks (Lambda failures, DLQ routing)
+- [ ] Retry behavior testing (exponential backoff visibility)
+
+---
+
+## Phase 16 — Enhanced Agent Discovery + Targeting 🆕
+> **Goal**: Streamline agent version management and default to "latest prepared" version.
+
+### Version/Alias Discovery (ITK-0042):
+- [ ] Enhance `itk discover` to show version → alias mapping
+- [ ] Display: agent versions with status (PREPARED/DRAFT/FAILED)
+- [ ] Display: which alias points to which version
+- [ ] Display: inference profile per alias
+- [ ] Table format in terminal, YAML in .env.discovered
+
+### Default Latest Version (ITK-0043):
+- [ ] Support `agent_version: "latest"` in case YAML target
+- [ ] Resolve to most recent PREPARED version at runtime
+- [ ] Skip DRAFT versions by default (safety)
+- [ ] Add `agent_version: "draft"` for explicit draft testing
+- [ ] Cache resolution per run to avoid API churn
+
+### Version Pinning for CI:
+- [ ] `itk pin-version --agent AGENTID --out .env.pinned`
+- [ ] Writes exact version ID for reproducible CI runs
+- [ ] Prevents "works on my machine" version drift
+
+---
+
+## Phase 17 — Historical Execution Viewer 🆕
+> **Goal**: Browse past executions with the same UI as test runs.
+
+### `itk view` Command (ITK-0044):
+- [ ] Fetch logs from CloudWatch for time window
+- [ ] Group by trace/session ID into discrete executions
+- [ ] Generate full artifact set per execution:
+  - index.html (summary report)
+  - trace-viewer.html (sequence diagram)
+  - timeline.html (temporal view)
+  - spans.jsonl (raw data)
+- [ ] Generate gallery page listing all executions
+- [ ] Click any row → opens that execution's report
+
+### Filtering + Search:
+- [ ] `--filter errors` — only failed executions
+- [ ] `--filter slow` — latency > threshold
+- [ ] `--search "keyword"` — text search in payloads
+- [ ] `--limit N` — cap number of executions
+
+### Offline Mode:
+- [ ] `--logs-file <path>` — view from local JSONL file
+- [ ] Enables Tier-2 development/testing
+
+---
+
 ## Development Principles (Tier-2)
 
 1. **Offline-only execution**: We test against fixtures/mocks, never real AWS

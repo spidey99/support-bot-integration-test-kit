@@ -1,0 +1,57 @@
+{
+  "_comment": "This file shows a complete span log entry with inline documentation",
+  "_purpose": "Use this as a reference when implementing structured logging in your Lambda/services",
+
+  "span_id": "span-abc123",
+  "_span_id_note": "Unique identifier for this span. Generate with UUID or nanoid.",
+
+  "parent_span_id": "span-parent-789",
+  "_parent_span_id_note": "ID of the calling span. Null for root spans (entry points).",
+
+  "component": "bedrock_agent",
+  "_component_note": "Type of service/component. Values: lambda, sqs, bedrock_agent, bedrock_model, dynamodb, http_client, etc.",
+
+  "operation": "InvokeAgent",
+  "_operation_note": "The specific operation performed. Examples: Invoke, SendMessage, GetItem, InvokeAgent, InvokeModel",
+
+  "ts_start": "2026-01-17T10:00:00.000Z",
+  "_ts_start_note": "ISO 8601 timestamp when operation started. Include milliseconds for precision.",
+
+  "ts_end": "2026-01-17T10:00:01.234Z",
+  "_ts_end_note": "ISO 8601 timestamp when operation completed. Used to calculate duration.",
+
+  "attempt": 1,
+  "_attempt_note": "Retry attempt number. 1 = first try, 2+ = retries after failure.",
+
+  "itk_trace_id": "trace-xyz789",
+  "_itk_trace_id_note": "Custom trace ID passed through your system for end-to-end correlation.",
+
+  "lambda_request_id": "12345678-1234-1234-1234-123456789abc",
+  "_lambda_request_id_note": "AWS Lambda request ID from context.aws_request_id. Essential for CloudWatch correlation.",
+
+  "xray_trace_id": "1-5759e988-bd862e3fe1be46a994272793",
+  "_xray_trace_id_note": "AWS X-Ray trace ID if X-Ray tracing is enabled.",
+
+  "sqs_message_id": "msg-456def",
+  "_sqs_message_id_note": "SQS message ID when processing queue messages.",
+
+  "bedrock_session_id": "sess-bedrock-001",
+  "_bedrock_session_id_note": "Bedrock agent session ID for multi-turn conversations.",
+
+  "request": {
+    "agentId": "WYEP3TYH1A",
+    "agentAliasId": "10KMKO4HUD",
+    "inputText": "What is the status of ticket ABC-123?",
+    "sessionId": "sess-bedrock-001"
+  },
+  "_request_note": "Input payload sent to the operation. Redact sensitive fields before logging.",
+
+  "response": {
+    "completion": "Ticket ABC-123 is currently in 'In Progress' status.",
+    "sessionId": "sess-bedrock-001"
+  },
+  "_response_note": "Output received from the operation. Redact PII and sensitive data.",
+
+  "error": null,
+  "_error_note": "Error object if the operation failed. Example: {\"code\": \"ThrottlingException\", \"message\": \"Rate exceeded\"}"
+}

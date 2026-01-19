@@ -1,0 +1,56 @@
+# Live Haiku Test Case
+# Tests Worker agent invocation with Claude Haiku 4.5
+#
+# This case targets live AWS resources and should be run with:
+#   itk run --mode live --case cases/live-haiku-001.yaml --out artifacts/live-001/
+
+id: live-haiku-001
+name: Worker Agent - Haiku Invocation
+
+# Use env vars for target IDs (resolved at runtime in live mode)
+# In dev-fixtures mode, uses fixture data instead
+fixture: ../fixtures/logs/realistic_lambda_001.jsonl
+
+entrypoint:
+  type: bedrock_invoke_agent
+  target:
+    # These are resolved from environment variables in live mode:
+    # ITK_WORKER_AGENT_ID, ITK_WORKER_ALIAS_ID (from env/live.env)
+    agent_id: ${ITK_WORKER_AGENT_ID}
+    agent_alias_id: ${ITK_WORKER_ALIAS_ID}
+    region: us-east-1
+  payload:
+    inputText: "Hello, this is a test message from ITK. Please respond briefly."
+    # Session ID auto-generated if not specified
+    enableTrace: true
+
+expected:
+  invariants:
+    - name: has_spans
+    - name: has_entrypoint
+    - name: no_duplicate_span_ids
+    - name: valid_timestamps
+  # Expected response should contain some text
+  response_contains:
+    - type: text
+      pattern: ".*"  # Any non-empty response
+
+# Log groups to fetch for trace analysis
+log_sources:
+  - log_group: /aws/lambda/itk-haiku-invoker
+    filter_pattern: ""  # All logs
+
+notes:
+  source: "ITK live testing infrastructure"
+  description: |
+    Tests the Worker Bedrock Agent which uses an action group
+    to invoke a Lambda that calls Claude Haiku 4.5.
+    
+    Expected flow:
+    1. Agent receives prompt
+    2. Agent decides to invoke action group
+    3. Lambda is invoked
+    4. Lambda calls Bedrock InvokeModel (Haiku 4.5)
+    5. Response returned through chain
+  created: "2026-01-18"
+  tier: "live"

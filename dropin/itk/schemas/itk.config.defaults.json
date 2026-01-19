@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$comment": "ITK Configuration Defaults - All values with their defaults and descriptions",
+  "defaults": {
+    "ITK_MODE": {
+      "default": "live",
+      "description": "Execution mode: 'live' (real AWS calls) or 'dev-fixtures' (offline testing)",
+      "env_var": "ITK_MODE",
+      "cli_flag": "--mode"
+    },
+    "ITK_AWS_REGION": {
+      "default": "us-east-1",
+      "description": "AWS region for all service calls",
+      "env_var": "ITK_AWS_REGION",
+      "cli_flag": null
+    },
+    "ITK_LOG_GROUPS": {
+      "default": "",
+      "description": "Comma-separated CloudWatch log group names to fetch logs from",
+      "env_var": "ITK_LOG_GROUPS",
+      "cli_flag": null
+    },
+    "ITK_SQS_QUEUE_URL": {
+      "default": null,
+      "description": "SQS queue URL for triggering test cases",
+      "env_var": "ITK_SQS_QUEUE_URL",
+      "cli_flag": null
+    },
+    "ITK_LAMBDA_FUNCTION_NAME": {
+      "default": null,
+      "description": "Lambda function name for direct invocation entrypoints",
+      "env_var": "ITK_LAMBDA_FUNCTION_NAME",
+      "cli_flag": null
+    },
+    "ITK_BEDROCK_AGENT_ID": {
+      "default": null,
+      "description": "Bedrock Agent ID for agent invocation entrypoints",
+      "env_var": "ITK_BEDROCK_AGENT_ID",
+      "cli_flag": null
+    },
+    "ITK_BEDROCK_AGENT_ALIAS_ID": {
+      "default": null,
+      "description": "Bedrock Agent Alias ID (required with agent ID)",
+      "env_var": "ITK_BEDROCK_AGENT_ALIAS_ID",
+      "cli_flag": null
+    },
+    "ITK_RESOLVER_CMD": {
+      "default": null,
+      "description": "Shell command that outputs targets.json for dynamic configuration",
+      "env_var": "ITK_RESOLVER_CMD",
+      "cli_flag": null
+    },
+    "ITK_REDACT_KEYS": {
+      "default": "",
+      "description": "Comma-separated list of JSON keys to redact in outputs",
+      "env_var": "ITK_REDACT_KEYS",
+      "cli_flag": null
+    },
+    "ITK_REDACT_PATTERNS": {
+      "default": "",
+      "description": "Comma-separated regex patterns to redact in string values",
+      "env_var": "ITK_REDACT_PATTERNS",
+      "cli_flag": null
+    },
+    "ITK_LOG_DELAY_SECONDS": {
+      "default": 0,
+      "description": "Extra delay before fetching logs (CloudWatch propagation)",
+      "env_var": "ITK_LOG_DELAY_SECONDS",
+      "cli_flag": null
+    },
+    "ITK_LOG_QUERY_WINDOW_SECONDS": {
+      "default": 3600,
+      "description": "Time window in seconds for CloudWatch log queries",
+      "env_var": "ITK_LOG_QUERY_WINDOW_SECONDS",
+      "cli_flag": null
+    },
+    "ITK_SOAK_MAX_INFLIGHT": {
+      "default": 5,
+      "description": "Maximum concurrent requests during soak testing",
+      "env_var": "ITK_SOAK_MAX_INFLIGHT",
+      "cli_flag": null
+    },
+    "ITK_SUPPRESS_VENV_WARNING": {
+      "default": false,
+      "description": "Suppress the 'not in venv' warning at startup",
+      "env_var": "ITK_SUPPRESS_VENV_WARNING",
+      "cli_flag": null
+    }
+  },
+  "cli_defaults": {
+    "run": {
+      "--mode": "live (or ITK_MODE env var)",
+      "--env-file": "./.env",
+      "--no-redact": false
+    },
+    "soak": {
+      "--initial-rate": 1.0,
+      "--detailed": true,
+      "--mode": "live (or ITK_MODE env var)"
+    },
+    "doctor": {
+      "--mode": "live"
+    },
+    "discover": {
+      "--region": "us-east-1 (or AWS_REGION env var)",
+      "--out": ".env.discovered"
+    },
+    "serve": {
+      "--port": 8080,
+      "--no-browser": false,
+      "--watch": false
+    }
+  }
+}

@@ -1,0 +1,23 @@
+id: test-latest-version
+name: Test latest prepared version targeting
+entrypoint:
+  type: bedrock_invoke_agent
+  target:
+    agent_id: ${ITK_WORKER_AGENT_ID}
+    agent_version: "latest"  # Auto-resolves to newest PREPARED version
+    region: us-east-1
+  payload:
+    inputText: "Hello, testing latest version mode"
+    enableTrace: true
+expected:
+  invariants:
+    - name: has_spans
+    - name: has_entrypoint
+notes:
+  description: |
+    This case demonstrates the 'latest' version mode.
+    Instead of specifying an alias, ITK will:
+    1. List all agent versions
+    2. Find the newest PREPARED version
+    3. Find an alias pointing to that version
+    4. Use that alias for invocation

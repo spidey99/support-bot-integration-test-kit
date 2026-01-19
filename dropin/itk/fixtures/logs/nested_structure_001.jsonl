@@ -1,0 +1,4 @@
+{"level": "INFO", "timestamp": "2025-01-19T08:00:00.000Z", "data": {"component": "lambda", "operation": "handler.start", "requestId": "req-001", "traceId": "trace-nested-001"}}
+{"level": "INFO", "timestamp": "2025-01-19T08:00:00.100Z", "record": {"span_type": "bedrock", "op": "invoke_model"}, "context": {"correlationId": "trace-nested-001"}}
+{"level": "INFO", "timestamp": "2025-01-19T08:00:01.200Z", "event": {"component": "bedrock", "action": "model_response", "result": {"text": "Hello from nested!"}}}
+{"level": "INFO", "timestamp": "2025-01-19T08:00:01.300Z", "log": {"service": "lambda", "method": "handler.complete"}, "requestId": "req-001"}

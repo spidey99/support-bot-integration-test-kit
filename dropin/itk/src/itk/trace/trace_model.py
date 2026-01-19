@@ -36,14 +36,21 @@ class BedrockTraceEvent:
         """Extract the orchestrationTrace from the raw trace."""
         return self.raw_trace.get("trace", {}).get("orchestrationTrace")
 
-
 def parse_bedrock_trace_event(raw: dict[str, Any]) -> BedrockTraceEvent:
     """Parse a raw Bedrock trace event into a structured object."""
+    # Bedrock uses 'eventTime' for the timestamp
+    timestamp = raw.get("eventTime") or raw.get("timestamp", "")
+    # Convert to string if it's a datetime-like object
+    if hasattr(timestamp, "isoformat"):
+        timestamp = timestamp.isoformat()
+    elif not isinstance(timestamp, str):
+        timestamp = str(timestamp)
+    
     return BedrockTraceEvent(
         session_id=raw.get("sessionId", ""),
         trace_id=raw.get("traceId", ""),
         event_type=raw.get("event", "unknown"),
-        timestamp=raw.get("timestamp", ""),
+        timestamp=timestamp,
         raw_trace=raw,
     )
 
@@ -66,9 +73,17 @@ def bedrock_traces_to_spans(
 ) -> list[Span]:
     """Convert Bedrock trace events into ITK spans.
 
-    This creates spans for:
-    - modelInvocationInput/Output pairs (agent model calls)
-    - invocationInput/observation pairs (action group invocations)
+    This creates a hierarchical span structure:
+    - Root "agent:orchestrator" span for the overall agent invocation
+    - Child spans for model calls and action group invocations
+
+    The flow is:
+    1. Agent receives request (root span)
+    2. Agent calls model to think (child of root)
+    3. Model decides to call action group (child of root, after model)
+    4. Action group returns
+    5. Agent calls model again to process result (child of root)
+    6. Agent returns response
 
     Args:
         events: List of Bedrock trace events
@@ -84,12 +99,35 @@ def bedrock_traces_to_spans(
     # Sort by timestamp
     events.sort(key=lambda e: e.timestamp)
 
+    if not events:
+        return []
+
     spans: list[Span] = []
     span_counter = 0
+
+    # Create root orchestrator span
+    first_event = events[0]
+    last_event = events[-1]
+    root_span_id = "bedrock-orchestrator-000"
+    
+    root_span = Span(
+        span_id=root_span_id,
+        parent_span_id=None,
+        component="agent:bedrock-orchestrator",
+        operation="InvokeAgent",
+        ts_start=first_event.timestamp,
+        ts_end=last_event.timestamp,
+        bedrock_session_id=first_event.session_id,
+        request={"session_id": first_event.session_id},
+        response={"trace_id": first_event.trace_id},
+    )
+    spans.append(root_span)
 
     # Track open model invocations and action group calls
     model_input: Optional[BedrockTraceEvent] = None
     action_input: Optional[BedrockTraceEvent] = None
+    # Track previous span for sequencing visualization
+    prev_span_id: str = root_span_id
 
     for event in events:
         orch = event.orchestration_trace
@@ -106,10 +144,11 @@ def bedrock_traces_to_spans(
             inp = model_input.orchestration_trace.get("modelInvocationInput", {})
             out = orch.get("modelInvocationOutput", {})
 
+            new_span_id = f"bedrock-model-{span_counter:03d}"
             spans.append(
                 Span(
-                    span_id=f"bedrock-model-{span_counter:03d}",
-                    parent_span_id=None,  # Would need parent tracking
+                    span_id=new_span_id,
+                    parent_span_id=root_span_id,  # Child of orchestrator
                     component="agent:bedrock-model",
                     operation="InvokeModel",
                     ts_start=model_input.timestamp,
@@ -125,6 +164,7 @@ def bedrock_traces_to_spans(
                     },
                 )
             )
+            prev_span_id = new_span_id
             model_input = None
 
         # Action group invocation input
@@ -143,11 +183,12 @@ def bedrock_traces_to_spans(
                 ag_output = obs.get("actionGroupInvocationOutput", {})
 
                 action_group_name = ag_input.get("actionGroupName", "unknown")
+                new_span_id = f"bedrock-action-{span_counter:03d}"
 
                 spans.append(
                     Span(
-                        span_id=f"bedrock-action-{span_counter:03d}",
-                        parent_span_id=None,
+                        span_id=new_span_id,
+                        parent_span_id=root_span_id,  # Child of orchestrator
                         component=f"lambda:{action_group_name}",
                         operation="InvokeActionGroup",
                         ts_start=action_input.timestamp,
@@ -164,16 +205,18 @@ def bedrock_traces_to_spans(
                         },
                     )
                 )
+                prev_span_id = new_span_id
                 action_input = None
 
         # Rationale (agent's reasoning) - optional span
         elif "rationale" in orch:
             span_counter += 1
             rationale = orch.get("rationale", {})
+            new_span_id = f"bedrock-rationale-{span_counter:03d}"
             spans.append(
                 Span(
-                    span_id=f"bedrock-rationale-{span_counter:03d}",
-                    parent_span_id=None,
+                    span_id=new_span_id,
+                    parent_span_id=root_span_id,  # Child of orchestrator
                     component="agent:bedrock-rationale",
                     operation="Rationale",
                     ts_start=event.timestamp,
@@ -181,6 +224,7 @@ def bedrock_traces_to_spans(
                     request={"reasoning": rationale.get("text")},
                 )
             )
+            prev_span_id = new_span_id
 
     return spans
 

@@ -97,6 +97,8 @@ itk derive --since <duration> --out <dir>  # Generate cases from logs
 itk soak --case <yaml> --out <dir> --iterations N  # Soak test with N iterations
 itk soak --case <yaml> --out <dir> --duration 1h   # Soak test for 1 hour
 itk scan --repo . --out <dir>           # Codebase coverage scan
+itk view --since <duration> --out <dir>  # View historical executions
+itk discover --out .env.discovered      # Discover AWS resources
 ```
 
 ### Never do this

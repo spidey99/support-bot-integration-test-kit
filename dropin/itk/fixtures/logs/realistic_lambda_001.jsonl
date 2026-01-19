@@ -1,0 +1,4 @@
+{"level": "INFO", "message": "Request received", "timestamp": "2025-01-19T07:45:00.123Z", "requestId": "abc-123-def", "traceId": "trace-456", "component": "lambda", "operation": "handler.start", "request": {"prompt": "Hello, world!"}}
+{"level": "INFO", "message": "Invoking Bedrock model", "timestamp": "2025-01-19T07:45:00.234Z", "requestId": "abc-123-def", "traceId": "trace-456", "component": "bedrock", "operation": "invoke", "request": {"modelId": "claude-3-haiku"}}
+{"level": "INFO", "message": "Model response received", "timestamp": "2025-01-19T07:45:01.567Z", "requestId": "abc-123-def", "traceId": "trace-456", "component": "bedrock", "operation": "invoke", "response": {"text": "Hello! I'm here to help."}}
+{"level": "INFO", "message": "Request complete", "timestamp": "2025-01-19T07:45:01.678Z", "requestId": "abc-123-def", "traceId": "trace-456", "component": "lambda", "operation": "handler.complete", "response": {"statusCode": 200}}

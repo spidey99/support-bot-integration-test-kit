@@ -110,8 +110,15 @@ def parse_env_file(env_file: Path) -> dict[str, str]:
     - KEY=value
     - KEY="quoted value"
     - KEY='single quoted'
+    - export KEY=value (AWS SSO format)
+    - export KEY="quoted value"
     - # comments
     - Empty lines
+    
+    This allows pasting AWS SSO credentials directly:
+        export AWS_ACCESS_KEY_ID="ASIA..."
+        export AWS_SECRET_ACCESS_KEY="..."
+        export AWS_SESSION_TOKEN="..."
     """
     result: dict[str, str] = {}
 
@@ -124,6 +131,10 @@ def parse_env_file(env_file: Path) -> dict[str, str]:
         # Skip empty lines and comments
         if not line or line.startswith("#"):
             continue
+
+        # Handle 'export KEY=value' format (AWS SSO copy-paste)
+        if line.startswith("export "):
+            line = line[7:]  # Remove 'export ' prefix
 
         # Skip lines without =
         if "=" not in line:
@@ -142,6 +153,41 @@ def parse_env_file(env_file: Path) -> dict[str, str]:
         result[key] = value
 
     return result
+
+
+def _find_env_file(start: Path | None = None) -> Path | None:
+    """Find .env file by walking up directory tree.
+
+    Stops at git root, home directory, or filesystem root.
+    Returns None if not found.
+    """
+    current = (start or Path.cwd()).resolve()
+    
+    # Safely get home directory
+    try:
+        home = Path.home()
+    except RuntimeError:
+        home = None  # Can't determine home, just walk to root
+
+    for _ in range(20):  # Max depth
+        # Check for .env
+        env_file = current / ".env"
+        if env_file.exists():
+            return env_file
+
+        # Stop conditions
+        if home and current == home:
+            break
+        if current == current.parent:
+            break
+
+        # Stop at git root (but check .env first)
+        if (current / ".git").exists():
+            break
+
+        current = current.parent
+
+    return None
 
 
 def resolve_targets_from_command(resolver_cmd: str) -> Targets:
@@ -212,13 +258,22 @@ def load_config(
         if env_file_path.exists():
             file_vars = parse_env_file(env_file_path)
             env_vars.update(file_vars)
+            # Also update os.environ so ${VAR} substitutions work
+            # Only update non-empty values to avoid clobbering existing env vars
+            for k, v in file_vars.items():
+                if v:  # Only set non-empty values
+                    os.environ[k] = v
     else:
-        # Auto-discover .env in current directory
-        default_env = Path.cwd() / ".env"
-        if default_env.exists():
-            env_file_path = default_env
-            file_vars = parse_env_file(default_env)
+        # Auto-discover .env by walking up directory tree
+        env_file_path = _find_env_file()
+        if env_file_path and env_file_path.exists():
+            file_vars = parse_env_file(env_file_path)
             env_vars.update(file_vars)
+            # Also update os.environ so ${VAR} substitutions work
+            # Only update non-empty values to avoid clobbering existing env vars
+            for k, v in file_vars.items():
+                if v:  # Only set non-empty values
+                    os.environ[k] = v
 
     # Step 3: Determine mode
     resolved_mode: Mode
