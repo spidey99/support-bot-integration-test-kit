@@ -237,7 +237,7 @@ class TestGenerateExampleCase:
     def test_generates_bedrock_case_with_placeholders_when_no_agent(self) -> None:
         """Should generate bedrock_invoke_agent case with placeholders when no agent provided."""
         content = generate_example_case()
-        assert "id: example-001" in content
+        assert "id: my-first-test" in content
         assert "bedrock_invoke_agent" in content
         assert "YOUR_AGENT_ID_HERE" in content
         assert "TSTALIASID" in content

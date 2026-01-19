@@ -89,7 +89,7 @@ def load_case(path: Path) -> CaseConfig:
         raise FileNotFoundError(
             f"Case file not found: {path}\n\n"
             f"To create a case file, see: docs/02-test-case-format.md\n"
-            f"Or copy from: cases/example-001.yaml"
+            f"Or copy from: examples/example-001.yaml"
         )
     
     try:
@@ -114,13 +114,13 @@ def load_case(path: Path) -> CaseConfig:
     if data is None:
         raise ValueError(
             f"Case file is empty: {path}\n\n"
-            f"See cases/example-001.yaml for the expected format."
+            f"See examples/example-001.yaml for the expected format."
         )
     
     if not isinstance(data, dict):
         raise ValueError(
             f"Case file must contain a YAML mapping, got {type(data).__name__}: {path}\n\n"
-            f"See cases/example-001.yaml for the expected format."
+            f"See examples/example-001.yaml for the expected format."
         )
 
     # Validate against schema
@@ -130,7 +130,7 @@ def load_case(path: Path) -> CaseConfig:
         raise ValueError(
             f"Case validation failed for {path}:\n{error_details}\n\n"
             f"Required fields: id, name, entrypoint\n"
-            f"See cases/example-001.yaml for the expected format."
+            f"See examples/example-001.yaml for the expected format."
         )
 
     entrypoint_data = data["entrypoint"]

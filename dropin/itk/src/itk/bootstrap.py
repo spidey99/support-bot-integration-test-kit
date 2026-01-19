@@ -379,15 +379,15 @@ def generate_example_case(
     agent_name: str | None = None,
     alias_id: str | None = None,
 ) -> str:
-    """Generate a minimal example case YAML."""
+    """Generate a minimal starter case YAML."""
     import yaml
 
     # Always default to bedrock_invoke_agent - it's the primary use case
     # and provides clear placeholders when no agent is discovered
     case: dict[str, Any] = {
-        "id": "example-001",
-        "name": "Example Test Case",
-        "description": "Auto-generated example case. Edit to match your use case.",
+        "id": "my-first-test",
+        "name": "My First Test Case",
+        "description": "Auto-generated starter case. Edit to match your use case.",
         "entrypoint": {
             "type": "bedrock_invoke_agent",
             "target": {},
@@ -542,10 +542,10 @@ def bootstrap(
         result.warnings.append(".env already exists (use --force to overwrite)")
         result.env_file = env_file
 
-    # Step 6: Generate example case
+    # Step 6: Generate starter case
     cases_dir = root / "cases"
-    example_case = cases_dir / "example-001.yaml"
-    if not example_case.exists() or force:
+    starter_case = cases_dir / "my-first-test.yaml"
+    if not starter_case.exists() or force:
         agent_id = None
         alias_id = None
         agent_name = None
@@ -561,12 +561,12 @@ def bootstrap(
             agent_name=agent_name,
             alias_id=alias_id,
         )
-        example_case.write_text(content, encoding="utf-8")
-        result.first_case = example_case
-        result.steps_completed.append(f"Created example case")
+        starter_case.write_text(content, encoding="utf-8")
+        result.first_case = starter_case
+        result.steps_completed.append(f"Created starter case: my-first-test.yaml")
     else:
-        result.warnings.append("Example case already exists")
-        result.first_case = example_case
+        result.warnings.append("Starter case already exists")
+        result.first_case = starter_case
 
     result.artifacts_dir = root / "artifacts"
     result.success = True

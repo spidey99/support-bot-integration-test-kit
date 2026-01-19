@@ -35,11 +35,11 @@ def generated_artifacts(tmp_path_factory: pytest.TempPathFactory) -> Path:
     from argparse import Namespace
     
     out_dir = tmp_path_factory.mktemp("artifacts")
-    cases_dir = Path(__file__).parent.parent.parent / "cases"
+    examples_dir = Path(__file__).parent.parent.parent / "examples"
     
-    # Generate from example case
+    # Generate from example case (examples are reference only, not live tests)
     args = Namespace(
-        case=str(cases_dir / "example-001.yaml"),
+        case=str(examples_dir / "example-001.yaml"),
         out=str(out_dir),
         mode="dev-fixtures",
         env_file=None,

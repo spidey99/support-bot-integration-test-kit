@@ -36,6 +36,12 @@ def sample_fixture_path(fixtures_dir: Path) -> Path:
 
 
 @pytest.fixture
-def example_case_path(cases_dir: Path) -> Path:
-    """Return the path to example-001.yaml."""
-    return cases_dir / "example-001.yaml"
+def examples_dir() -> Path:
+    """Return the path to the examples directory."""
+    return Path(__file__).parent.parent / "examples"
+
+
+@pytest.fixture
+def example_case_path(examples_dir: Path) -> Path:
+    """Return the path to example-001.yaml in examples dir."""
+    return examples_dir / "example-001.yaml"

@@ -2680,10 +2680,10 @@ def _cmd_quickstart(args: argparse.Namespace) -> int:
         print(f"  ❌ No case files in cases/")
         return 1
     
-    # Prefer example-001.yaml or first file
+    # Prefer my-first-test.yaml or first file
     first_case = None
     for c in case_files:
-        if "example" in c.name.lower():
+        if "my-first-test" in c.name.lower() or "first" in c.name.lower():
             first_case = c
             break
     if not first_case:
@@ -2861,8 +2861,8 @@ def _cmd_bootstrap(args: argparse.Namespace) -> int:
     print()
     print("Next steps:")
     print("  • Review .env and adjust settings")
-    print("  • Edit cases/example-001.yaml for your use case")
-    print("  • Run 'itk run --case cases/example-001.yaml --out artifacts/run1'")
+    print("  • Edit cases/my-first-test.yaml for your use case")
+    print("  • Run 'itk run --case cases/my-first-test.yaml --out artifacts/run1'")
 
     return 0
 
