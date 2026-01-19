@@ -4,6 +4,19 @@ You are setting up the Integration Test Kit (ITK) to test a Bedrock Agent deploy
 
 **IMPORTANT:** Always show the user command output and explain what happened. If any command fails, stop and help the user fix it before continuing.
 
+## Phase 0: Get AWS Credentials
+
+Before starting, ensure you have AWS credentials in your terminal.
+
+**From AWS CloudShell (easiest):**
+1. Open AWS Console → click CloudShell icon (terminal in top nav)
+2. Run: `aws configure export-credentials --format env`
+3. Copy the output and paste into your local PowerShell/terminal
+
+**Or from AWS SSO Portal:**
+1. Click "Command line or programmatic access"
+2. Copy the environment variables block and paste into terminal
+
 ## Phase 1: Install ITK
 
 1. Clone the ITK repository:
