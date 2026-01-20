@@ -23,6 +23,16 @@
   3. Make agent creation faster (cache, or pre-create ephemeral pool)
 - **File**: `dropin/itk/infra/terraform-e2e/main.tf`
 
+### ITK-BUG-0003 — No reusable test infrastructure for fresh repos (OPEN)
+- **Symptom**: Fresh repo test (derp test) discovered existing resources with permission issues and unknown log formats
+- **Root cause**: `itk bootstrap` discovers whatever exists, not purpose-built ITK-compatible infra
+- **Expected behavior**: Should be able to deploy known-good Lambda + log group with ITK-compatible span logging
+- **Fix options**:
+  1. Create reusable Terraform module in `dropin/itk/infra/test-lambda/` that any project can deploy
+  2. Add `itk create-test-infra` command that deploys the module
+  3. Add "Option C: Create test infrastructure" to Agent Setup Guide
+- **Related**: E2E test already has working infra at `dropin/itk/infra/terraform-e2e/main.tf`
+
 ---
 
 ## ITK-W-0001 — Environment setup

@@ -1,0 +1,17 @@
+id: my-first-test
+name: My First Test Case
+description: 'EDIT THIS: Replace YOUR_AGENT_ID_HERE with your Bedrock Agent ID. Find
+  it in AWS Console -> Bedrock -> Agents.'
+entrypoint:
+  type: bedrock_invoke_agent
+  target:
+    agent_id: YOUR_AGENT_ID_HERE
+    agent_alias_id: TSTALIASID
+  payload:
+    inputText: Hello, this is a test message.
+    sessionId: itk-test-session
+    enableTrace: true
+invariants:
+- type: no_error_spans
+- type: max_duration_ms
+  value: 30000
