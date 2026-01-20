@@ -610,11 +610,237 @@ def _parse_since(since: str) -> int:
 
 
 def _cmd_derive(args: argparse.Namespace) -> int:
-    """Derive test cases from CloudWatch logs.
+    """Derive test cases from traces or logs.
     
-    Fetches logs from configured log groups, parses them into spans,
-    groups by correlation IDs, and generates case YAML files.
+    Two modes:
+    1. --traces: Derive from existing itk trace output directory
+    2. --logs: Run trace internally, then derive (convenience shortcut)
+    
+    Also supports legacy --since mode for CloudWatch fetch.
     """
+    import yaml
+    
+    traces_dir = getattr(args, "traces", None)
+    logs_file = getattr(args, "logs", None)
+    since = getattr(args, "since", None)
+    out_dir = Path(args.out)
+    
+    # Determine mode
+    if traces_dir:
+        return _derive_from_traces(Path(traces_dir), out_dir)
+    elif logs_file:
+        return _derive_from_logs(Path(logs_file), out_dir)
+    elif since:
+        # Legacy mode: fetch from CloudWatch
+        return _derive_from_cloudwatch(args)
+    else:
+        print("ERROR: Must specify --traces, --logs, or --since", file=sys.stderr)
+        return 1
+
+
+def _derive_from_traces(traces_dir: Path, out_dir: Path) -> int:
+    """Derive test cases from existing itk trace output."""
+    import yaml
+    
+    if not traces_dir.exists():
+        print(f"ERROR: Traces directory not found: {traces_dir}", file=sys.stderr)
+        return 1
+    
+    print("ITK Derive - Create Tests from Traces")
+    print("=" * 40)
+    print(f"Traces dir: {traces_dir}")
+    print(f"Output dir: {out_dir}")
+    
+    # Find chain directories
+    chain_dirs = sorted([d for d in traces_dir.iterdir() if d.is_dir() and d.name.startswith("chain-")])
+    
+    if not chain_dirs:
+        print("ERROR: No chain directories found in traces dir", file=sys.stderr)
+        return 1
+    
+    print(f"Found {len(chain_dirs)} chains")
+    print()
+    
+    out_dir.mkdir(parents=True, exist_ok=True)
+    cases_generated = 0
+    
+    for chain_dir in chain_dirs:
+        chain_id = chain_dir.name
+        
+        # Load chain metadata
+        meta_path = chain_dir / "chain_meta.json"
+        if not meta_path.exists():
+            print(f"  ⚠ Skipping {chain_id}: no chain_meta.json")
+            continue
+        
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        components = meta.get("components", [])
+        bridge_values = meta.get("bridge_values", {})
+        
+        # Load raw logs for this chain
+        raw_logs_path = chain_dir / "raw_logs.jsonl"
+        if not raw_logs_path.exists():
+            print(f"  ⚠ Skipping {chain_id}: no raw_logs.jsonl")
+            continue
+        
+        raw_logs = []
+        with open(raw_logs_path, "r", encoding="utf-8") as f:
+            for line in f:
+                if line.strip():
+                    raw_logs.append(json.loads(line))
+        
+        # Generate case
+        case_data = _build_case_from_chain(
+            chain_id=chain_id,
+            components=components,
+            bridge_values=bridge_values,
+            raw_logs=raw_logs,
+            trace_dir=chain_dir,
+        )
+        
+        # Write case file
+        case_path = out_dir / f"{chain_id}.yaml"
+        with open(case_path, "w", encoding="utf-8") as f:
+            yaml.dump(case_data, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+        
+        # Copy fixture (raw logs)
+        fixture_path = out_dir / f"{chain_id}.jsonl"
+        import shutil
+        shutil.copy(raw_logs_path, fixture_path)
+        
+        cases_generated += 1
+        print(f"  ✓ {chain_id}: {' → '.join(components)}")
+        print(f"    Case: {case_path.name}")
+        print(f"    Fixture: {fixture_path.name}")
+        print(f"    Trace: {chain_dir / 'timeline.html'}")
+    
+    print()
+    print(f"Generated {cases_generated} test case(s) in {out_dir}")
+    print()
+    print("Run tests:")
+    print(f"  itk run --case {out_dir / 'chain-001.yaml'} --out results/")
+    print(f"  itk suite --cases-dir {out_dir} --out results/")
+    
+    return 0
+
+
+def _derive_from_logs(logs_path: Path, out_dir: Path) -> int:
+    """Run trace on logs, then derive cases from the result."""
+    import tempfile
+    
+    print("ITK Derive - Create Tests from Logs")
+    print("=" * 40)
+    
+    # Create temp dir for trace output
+    with tempfile.TemporaryDirectory(prefix="itk-trace-") as trace_dir:
+        trace_path = Path(trace_dir)
+        
+        print(f"Step 1: Running trace analysis...")
+        print()
+        
+        # Build args for trace command
+        class TraceArgs:
+            logs = str(logs_path)
+            out = str(trace_path)
+            min_components = 2
+            debug = False
+        
+        rc = _cmd_trace(TraceArgs())
+        if rc != 0:
+            return rc
+        
+        print()
+        print(f"Step 2: Deriving test cases...")
+        print()
+        
+        # Now derive from the trace output
+        return _derive_from_traces(trace_path, out_dir)
+
+
+def _build_case_from_chain(
+    chain_id: str,
+    components: list[str],
+    bridge_values: dict[str, list[str]],
+    raw_logs: list[dict],
+    trace_dir: Path,
+) -> dict:
+    """Build a test case dict from chain metadata."""
+    first_component = components[0] if components else "unknown"
+    
+    # Infer entrypoint type
+    entrypoint_type_map = {
+        "sqs": "sqs_event",
+        "lambda": "lambda_invoke",
+        "bedrock": "bedrock_invoke_agent",
+        "api_gateway": "http",
+        "slack": "http",
+    }
+    entrypoint_type = entrypoint_type_map.get(first_component, "lambda_invoke")
+    
+    # Extract payload from first log entry
+    payload = {}
+    if raw_logs:
+        first_log = raw_logs[0]
+        for field in ("request", "body", "payload", "event"):
+            if field in first_log and isinstance(first_log[field], dict):
+                payload = first_log[field]
+                break
+    
+    # Get primary bridge value
+    primary_bridge = None
+    if bridge_values:
+        sorted_bridges = sorted(bridge_values.items(), key=lambda x: len(x[1]), reverse=True)
+        if sorted_bridges:
+            primary_bridge = sorted_bridges[0][0]
+    
+    # Build invariants
+    invariants = [
+        {"name": "has_spans", "params": {"min_count": len(raw_logs)}},
+    ]
+    if "bedrock" in components:
+        invariants.append({"name": "bedrock_response_present"})
+    if "slack" in components:
+        invariants.append({"name": "slack_message_sent"})
+    if len(components) >= 2:
+        invariants.append({"name": "component_flow", "params": {"expected_components": components}})
+    
+    # Build target based on entrypoint type
+    if entrypoint_type == "bedrock_invoke_agent":
+        target = {
+            "agent_id": "${ITK_WORKER_AGENT_ID}",
+            "agent_alias_id": "${ITK_WORKER_ALIAS_ID}",
+            "region": "${AWS_REGION}",
+        }
+    else:
+        target = {
+            "mode": "invoke_lambda",
+            "target_arn_or_url": "${ITK_LAMBDA_ARN}",
+        }
+    
+    return {
+        "id": chain_id,
+        "name": f"Derived: {' → '.join(components)}",
+        "fixture": f"{chain_id}.jsonl",
+        "entrypoint": {
+            "type": entrypoint_type,
+            "target": target,
+            "payload": payload,
+        },
+        "expected": {
+            "invariants": invariants,
+        },
+        "notes": {
+            "source": "derived via itk derive",
+            "trace_report": str(trace_dir / "timeline.html"),
+            "component_count": len(components),
+            "log_entry_count": len(raw_logs),
+            "primary_correlation_id": primary_bridge,
+        },
+    }
+
+
+def _derive_from_cloudwatch(args) -> int:
+    """Legacy mode: fetch from CloudWatch and derive."""
     import os
     import yaml
     from datetime import datetime, timezone, timedelta
@@ -692,7 +918,6 @@ def _cmd_derive(args: argparse.Namespace) -> int:
     orphan_spans: list[Span] = []
     
     for span in spans:
-        # Use trace ID or request ID as grouping key
         key = span.itk_trace_id or span.lambda_request_id or span.bedrock_session_id
         if key:
             trace_groups[key].append(span)
@@ -703,24 +928,15 @@ def _cmd_derive(args: argparse.Namespace) -> int:
     if orphan_spans:
         print(f"[derive] {len(orphan_spans)} orphan spans (no correlation ID)")
     
-    # Create output directory
     out_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Generate case files
     cases_generated = 0
     
     for trace_id, trace_spans in trace_groups.items():
-        # Generate case ID from trace ID
         case_id = f"derived-{trace_id[:12]}"
-        
-        # Determine first span's component for naming
         first_span = trace_spans[0]
         
-        # Build case YAML
-        # Build payload appropriate for the entrypoint type
         raw_payload = first_span.request or {}
         if entrypoint_type == "bedrock_invoke_agent":
-            # Extract inputText from various possible sources in log data
             input_text = (
                 raw_payload.get("inputText") or
                 raw_payload.get("prompt_preview") or
@@ -761,12 +977,10 @@ def _cmd_derive(args: argparse.Namespace) -> int:
             },
         }
         
-        # Write case file
         case_path = out_dir / f"{case_id}.yaml"
         with open(case_path, "w", encoding="utf-8") as f:
             yaml.dump(case_data, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
         
-        # Write fixture file with spans
         fixture_path = out_dir / f"{case_id}.jsonl"
         with open(fixture_path, "w", encoding="utf-8") as f:
             for span in trace_spans:
@@ -3191,16 +3405,11 @@ def _cmd_trace(args: argparse.Namespace) -> int:
             json.dumps(meta, indent=2), encoding="utf-8"
         )
         
-        # Write raw logs for this chain (fixture for replay)
-        fixture_path = chain_dir / "fixture.jsonl"
+        # Write raw logs for this chain (for derive to use later)
+        fixture_path = chain_dir / "raw_logs.jsonl"
         with open(fixture_path, "w", encoding="utf-8") as f:
             for entry in chain.entries:
                 f.write(json.dumps(entry.raw, default=str) + "\n")
-        
-        # Generate test case YAML for replay/soak testing
-        case_yaml = _generate_case_yaml(chain, chain_id, chain_dir)
-        case_path = chain_dir / "case.yaml"
-        case_path.write_text(case_yaml, encoding="utf-8")
         
         gallery_data.append({
             "chain_id": chain_id,
@@ -3228,141 +3437,14 @@ def _cmd_trace(args: argparse.Namespace) -> int:
     print(f"Artifacts written to: {out_dir}")
     print(f"  • {gallery_path.name} (gallery)")
     print(f"  • {summary_path.name}")
-    print(f"  • {len(multi_component_chains)} chain directories (each with case.yaml + fixture.jsonl)")
+    print(f"  • {len(multi_component_chains)} chain directories")
     print()
     print(f"Open {gallery_path} in a browser to explore traces.")
-    print(f"Run cases with: itk run --case {out_dir / 'chain-001' / 'case.yaml'} --out results/")
+    print()
+    print(f"To derive test cases from these traces:")
+    print(f"  itk derive --traces {out_dir} --out cases/")
     
     return 0
-
-
-def _generate_case_yaml(
-    chain: "CorrelationChain",
-    chain_id: str,
-    chain_dir: Path,
-) -> str:
-    """
-    Generate a test case YAML file from a discovered chain.
-    
-    The case includes:
-    - Reference to the fixture (raw logs for this chain)
-    - Detected entrypoint type based on first component
-    - Basic invariants based on observed patterns
-    """
-    from itk.correlation.dynamic_discovery import CorrelationChain
-    
-    components = chain.components
-    first_component = components[0] if components else "unknown"
-    
-    # Infer entrypoint type from first component
-    entrypoint_type_map = {
-        "sqs": "sqs_event",
-        "lambda": "lambda_invoke",
-        "bedrock": "bedrock_invoke_agent",
-        "api_gateway": "http",
-        "slack": "http",  # Slack usually comes via HTTP webhook
-    }
-    entrypoint_type = entrypoint_type_map.get(first_component, "lambda_invoke")
-    
-    # Extract any request payload from first entry
-    first_entry = chain.entries[0] if chain.entries else None
-    payload_sample = {}
-    if first_entry:
-        raw = first_entry.raw
-        # Look for request/body/payload fields
-        for field in ("request", "body", "payload", "event", "message"):
-            if field in raw and isinstance(raw[field], dict):
-                payload_sample = raw[field]
-                break
-    
-    # Build invariants based on observed components
-    invariants = [
-        {"name": "has_spans", "params": {"min_count": len(chain.entries)}},
-    ]
-    
-    if "bedrock" in components:
-        invariants.append({"name": "bedrock_response_present"})
-    if "slack" in components:
-        invariants.append({"name": "slack_message_sent"})
-    if chain.component_count >= 2:
-        invariants.append({
-            "name": "component_flow",
-            "params": {"expected_components": components},
-        })
-    
-    # Get primary bridge value for session tracking
-    primary_bridge = None
-    if chain.bridge_values:
-        sorted_bridges = sorted(
-            chain.bridge_values.items(),
-            key=lambda x: len(x[1]),
-            reverse=True,
-        )
-        if sorted_bridges:
-            primary_bridge = sorted_bridges[0][0]
-    
-    # Build YAML content (using string formatting to avoid yaml dependency issues)
-    lines = [
-        f"# Auto-generated test case from {chain_id}",
-        f"# Discovered: {len(chain.entries)} log entries across {chain.component_count} components",
-        f"# Flow: {' → '.join(components)}",
-        "",
-        f"id: {chain_id}",
-        f"name: Replay - {' → '.join(components)}",
-        f"fixture: fixture.jsonl",
-        "",
-        "entrypoint:",
-        f"  type: {entrypoint_type}",
-        "  target:",
-        '    mode: invoke_lambda  # REPLACE with actual target',
-        '    target_arn_or_url: "REPLACE_ME"',
-    ]
-    
-    if payload_sample:
-        lines.append("  payload:")
-        lines.append(f"    # Sample from first log entry (may need adjustment):")
-        for key, value in list(payload_sample.items())[:5]:
-            if isinstance(value, str):
-                lines.append(f'    {key}: "{value}"')
-            else:
-                lines.append(f"    {key}: {json.dumps(value)}")
-    
-    lines.extend([
-        "",
-        "expected:",
-        "  invariants:",
-    ])
-    
-    for inv in invariants:
-        lines.append(f"    - name: {inv['name']}")
-        if "params" in inv:
-            for pk, pv in inv["params"].items():
-                if isinstance(pv, list):
-                    lines.append(f"      {pk}:")
-                    for item in pv:
-                        lines.append(f"        - {item}")
-                else:
-                    lines.append(f"      {pk}: {pv}")
-    
-    lines.extend([
-        "",
-        "notes:",
-        f'  source: "auto-generated from itk trace"',
-        f'  original_chain_id: "{chain_id}"',
-        f"  component_count: {chain.component_count}",
-        f"  entry_count: {len(chain.entries)}",
-    ])
-    
-    if primary_bridge:
-        lines.append(f'  primary_correlation_id: "{primary_bridge}"')
-    
-    lines.extend([
-        "  missing_fields:",
-        '    - "actual Lambda/API target"',
-        '    - "live credentials"',
-    ])
-    
-    return "\n".join(lines) + "\n"
 
 
 def _render_trace_gallery(chains: list[dict], out_dir: Path) -> str:
@@ -3521,18 +3603,28 @@ def main() -> None:
     )
     p_run.set_defaults(func=_cmd_run)
 
-    # derive (Tier 3 only)
+    # derive - create test cases from traces or logs
     p_der = sub.add_parser(
         "derive",
-        help="Tier 3: derive cases from CloudWatch logs",
+        help="Create test cases from traces or logs",
+    )
+    p_der.add_argument(
+        "--traces",
+        help="Path to itk trace output directory (use with 'itk trace' output)",
+    )
+    p_der.add_argument(
+        "--logs",
+        help="Path to log file (JSON array or JSONL) - runs trace internally",
+    )
+    p_der.add_argument(
+        "--since",
+        help="Time window for CloudWatch fetch (e.g., 24h, 1d) - legacy mode",
     )
     p_der.add_argument(
         "--entrypoint",
-        required=True,
         choices=["sqs_event", "lambda_invoke", "bedrock_invoke_agent", "http"],
-        help="Entrypoint type to look for",
+        help="Entrypoint type (required for --since mode)",
     )
-    p_der.add_argument("--since", required=True, help="Time window (e.g., 24h, 1d)")
     p_der.add_argument("--out", required=True, help="Output directory for derived cases")
     p_der.set_defaults(func=_cmd_derive)
 
