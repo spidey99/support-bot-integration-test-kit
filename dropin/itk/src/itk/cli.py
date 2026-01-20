@@ -316,8 +316,14 @@ def _auto_discover_log_groups(region: str, agent_id: str | None = None) -> list[
 def _run_live_mode(case_path: Path, config: Config) -> tuple[Trace, dict]:
     """Run a case in live mode against AWS resources.
     
+    Supported entrypoint types:
+    - bedrock_invoke_agent: Invoke a Bedrock Agent
+    - lambda_invoke: Direct Lambda invocation
+    - sqs_event: Publish to SQS or invoke Lambda with SQS event shape
+    - http: HTTP request (planned)
+    
     Returns:
-        Tuple of (trace, agent_response_dict)
+        Tuple of (trace, response_dict)
         
     Raises:
         CredentialsExpiredError: If AWS credentials have expired
@@ -331,14 +337,38 @@ def _run_live_mode(case_path: Path, config: Config) -> tuple[Trace, dict]:
     case = load_case(case_path)
     entrypoint = case.entrypoint
     
-    if entrypoint.type != "bedrock_invoke_agent":
+    # Dispatch to appropriate handler based on entrypoint type
+    if entrypoint.type == "bedrock_invoke_agent":
+        return _run_bedrock_agent(case, config)
+    elif entrypoint.type == "lambda_invoke":
+        return _run_lambda_invoke(case, config)
+    elif entrypoint.type == "sqs_event":
+        return _run_sqs_event(case, config)
+    elif entrypoint.type == "http":
         raise NotImplementedError(
-            f"Live mode for entrypoint type '{entrypoint.type}' not implemented. "
-            f"Currently only 'bedrock_invoke_agent' is supported."
+            f"Live mode for entrypoint type 'http' not yet implemented. "
+            f"Use lambda_invoke or sqs_event instead."
         )
+    else:
+        raise ValueError(
+            f"Unknown entrypoint type '{entrypoint.type}'. "
+            f"Supported types: bedrock_invoke_agent, lambda_invoke, sqs_event, http"
+        )
+
+
+def _run_bedrock_agent(case: "Case", config: Config) -> tuple[Trace, dict]:
+    """Run a Bedrock Agent invocation.
     
-    # Resolve target from env vars
-    target_config = entrypoint.target
+    Returns:
+        Tuple of (trace, response_dict)
+    """
+    import os
+    import time
+    from datetime import datetime, timezone, timedelta
+    
+    entrypoint = case.entrypoint
+    target_config = entrypoint.target or {}
+    
     agent_id = _resolve_env_var(target_config.get("agent_id", ""))
     agent_alias_id = _resolve_env_var(target_config.get("agent_alias_id", ""))
     agent_version = _resolve_env_var(target_config.get("agent_version", ""))
@@ -362,7 +392,7 @@ def _run_live_mode(case_path: Path, config: Config) -> tuple[Trace, dict]:
     print(f"[live] Region: {region}")
     
     # Get payload
-    payload = entrypoint.payload
+    payload = entrypoint.payload or {}
     input_text = payload.get("inputText", "")
     enable_trace = payload.get("enableTrace", True)
     
@@ -395,14 +425,207 @@ def _run_live_mode(case_path: Path, config: Config) -> tuple[Trace, dict]:
     print(f"[live] Response: {response.completion[:100]}...")
     print(f"[live] Traces captured: {len(response.traces)}")
     
-    # Wait a moment for logs to propagate to CloudWatch
+    # Fetch CloudWatch logs
+    spans = _fetch_cloudwatch_spans(config, region, start_time, end_time, agent_id)
+    
+    # Also convert Bedrock traces to spans
+    from itk.trace.trace_model import bedrock_traces_to_spans, parse_bedrock_trace_event
+    
+    trace_events = []
+    for i, raw_trace in enumerate(response.traces):
+        raw_trace.setdefault("sessionId", response.session_id)
+        raw_trace.setdefault("traceId", f"trace-{i:03d}")
+        trace_events.append(parse_bedrock_trace_event(raw_trace))
+    
+    bedrock_spans = bedrock_traces_to_spans(trace_events, response.session_id)
+    print(f"[live] Converted {len(bedrock_spans)} spans from Bedrock traces")
+    
+    # Combine all spans
+    all_spans = list(spans) + list(bedrock_spans)
+    trace = build_trace_from_spans(all_spans)
+    
+    return trace, {
+        "session_id": response.session_id,
+        "completion": response.completion,
+        "trace_count": len(response.traces),
+        "start_time": start_time.isoformat(),
+        "end_time": end_time.isoformat(),
+    }
+
+
+def _run_lambda_invoke(case: "Case", config: Config) -> tuple[Trace, dict]:
+    """Run a direct Lambda invocation.
+    
+    Returns:
+        Tuple of (trace, response_dict)
+    """
+    import os
+    import time
+    from datetime import datetime, timezone, timedelta
+    
+    from itk.entrypoints.lambda_direct import LambdaDirectAdapter, LambdaTarget
+    
+    entrypoint = case.entrypoint
+    target_config = entrypoint.target or {}
+    
+    function_arn = _resolve_env_var(target_config.get("function_name_or_arn", ""))
+    if not function_arn:
+        function_arn = _resolve_env_var(target_config.get("target_arn_or_url", ""))
+    region = target_config.get("region", os.environ.get("AWS_REGION", "us-east-1"))
+    qualifier = target_config.get("qualifier")
+    
+    if not function_arn:
+        raise ValueError("entrypoint.target.function_name_or_arn is required for lambda_invoke")
+    
+    print(f"[live] Lambda: {function_arn}")
+    print(f"[live] Region: {region}")
+    if qualifier:
+        print(f"[live] Qualifier: {qualifier}")
+    
+    # Get payload
+    payload = entrypoint.payload or {}
+    
+    # Mark time before invocation
+    start_time = datetime.now(timezone.utc)
+    
+    target = LambdaTarget(
+        function_name_or_arn=function_arn,
+        region=region,
+        qualifier=qualifier,
+    )
+    
+    adapter = LambdaDirectAdapter(target, offline=False)
+    
+    print(f"[live] Invoking Lambda...")
+    response = adapter.invoke(payload=payload)
+    
+    end_time = datetime.now(timezone.utc)
+    
+    print(f"[live] Status: {response.status_code}")
+    print(f"[live] Request ID: {response.request_id}")
+    if response.function_error:
+        print(f"[live] ⚠️  Function error: {response.function_error}")
+    
+    # Fetch CloudWatch logs
+    spans = _fetch_cloudwatch_spans(config, region, start_time, end_time)
+    
+    trace = build_trace_from_spans(spans)
+    
+    return trace, {
+        "request_id": response.request_id,
+        "status_code": response.status_code,
+        "function_error": response.function_error,
+        "payload": response.payload,
+        "start_time": start_time.isoformat(),
+        "end_time": end_time.isoformat(),
+    }
+
+
+def _run_sqs_event(case: "Case", config: Config) -> tuple[Trace, dict]:
+    """Run an SQS event (publish to SQS or invoke Lambda with SQS shape).
+    
+    Returns:
+        Tuple of (trace, response_dict)
+    """
+    import os
+    import time
+    from datetime import datetime, timezone, timedelta
+    
+    from itk.entrypoints.sqs_event import SqsEventAdapter, SqsEventTarget, SqsPublishResult, LambdaInvokeResult
+    
+    entrypoint = case.entrypoint
+    target_config = entrypoint.target or {}
+    
+    mode = target_config.get("mode", "invoke_lambda")  # Default to lambda for easier testing
+    target_arn = _resolve_env_var(target_config.get("target_arn_or_url", ""))
+    region = target_config.get("region", os.environ.get("AWS_REGION", "us-east-1"))
+    
+    if not target_arn:
+        raise ValueError("entrypoint.target.target_arn_or_url is required for sqs_event")
+    
+    print(f"[live] Mode: {mode}")
+    print(f"[live] Target: {target_arn}")
+    print(f"[live] Region: {region}")
+    
+    # Get payload
+    payload = entrypoint.payload or {}
+    
+    # Mark time before invocation
+    start_time = datetime.now(timezone.utc)
+    
+    target = SqsEventTarget(
+        mode=mode,
+        target_arn_or_url=target_arn,
+        region=region,
+    )
+    
+    adapter = SqsEventAdapter(target, offline=False)
+    
+    print(f"[live] Replaying SQS event...")
+    response = adapter.replay(payload=payload)
+    
+    end_time = datetime.now(timezone.utc)
+    
+    if isinstance(response, SqsPublishResult):
+        print(f"[live] Message ID: {response.message_id}")
+        response_dict = {
+            "message_id": response.message_id,
+            "sequence_number": response.sequence_number,
+        }
+    else:
+        print(f"[live] Request ID: {response.request_id}")
+        print(f"[live] Status: {response.status_code}")
+        if response.function_error:
+            print(f"[live] ⚠️  Function error: {response.function_error}")
+        response_dict = {
+            "request_id": response.request_id,
+            "status_code": response.status_code,
+            "function_error": response.function_error,
+            "payload": response.payload,
+        }
+    
+    # Fetch CloudWatch logs
+    spans = _fetch_cloudwatch_spans(config, region, start_time, end_time)
+    
+    trace = build_trace_from_spans(spans)
+    
+    return trace, {
+        **response_dict,
+        "start_time": start_time.isoformat(),
+        "end_time": end_time.isoformat(),
+    }
+
+
+def _fetch_cloudwatch_spans(
+    config: Config,
+    region: str,
+    start_time: "datetime",
+    end_time: "datetime",
+    agent_id: str | None = None,
+) -> list[Span]:
+    """Fetch and parse CloudWatch logs into spans.
+    
+    Args:
+        config: ITK configuration
+        region: AWS region
+        start_time: Start of time window
+        end_time: End of time window
+        agent_id: Optional agent ID for auto-discovery
+        
+    Returns:
+        List of parsed spans
+    """
+    import time
+    from datetime import timedelta
+    
+    from itk.logs.cloudwatch_fetch import CloudWatchLogsClient, CloudWatchQuery
+    
+    # Wait for logs to propagate
     print("[live] Waiting 3s for CloudWatch log propagation...")
     time.sleep(3)
     
-    # Fetch CloudWatch logs
     log_groups = config.targets.log_groups
     if not log_groups:
-        # Auto-discover log groups if not configured
         print("[live] No log groups configured, attempting auto-discovery...")
         log_groups = _auto_discover_log_groups(region, agent_id)
         if log_groups:
@@ -414,11 +637,8 @@ def _run_live_mode(case_path: Path, config: Config) -> tuple[Trace, dict]:
     if log_groups:
         print(f"[live] Fetching logs from: {log_groups}")
     
-    from itk.logs.cloudwatch_fetch import CloudWatchLogsClient, CloudWatchQuery
-    
     cw_client = CloudWatchLogsClient(region=region, offline=False)
     
-    # Query for logs in the time window
     query = CloudWatchQuery(
         log_groups=log_groups,
         query_string="fields @timestamp, @message | sort @timestamp asc | limit 200",
@@ -429,7 +649,6 @@ def _run_live_mode(case_path: Path, config: Config) -> tuple[Trace, dict]:
     result = cw_client.run_query(query)
     print(f"[live] Fetched {len(result.results)} log events")
     
-    # Parse logs into spans
     log_events = [
         {"timestamp": r.get("@timestamp"), "message": r.get("@message", "")}
         for r in result.results
@@ -438,33 +657,7 @@ def _run_live_mode(case_path: Path, config: Config) -> tuple[Trace, dict]:
     spans = parse_cloudwatch_logs(log_events)
     print(f"[live] Parsed {len(spans)} spans from logs")
     
-    # Also convert Bedrock traces to spans
-    from itk.trace.trace_model import bedrock_traces_to_spans, parse_bedrock_trace_event
-    
-    # Parse raw trace dicts into BedrockTraceEvent objects
-    trace_events = []
-    for i, raw_trace in enumerate(response.traces):
-        # Add session_id if not present (eventTime should already be there)
-        raw_trace.setdefault("sessionId", response.session_id)
-        raw_trace.setdefault("traceId", f"trace-{i:03d}")
-        trace_events.append(parse_bedrock_trace_event(raw_trace))
-    
-    bedrock_spans = bedrock_traces_to_spans(trace_events, response.session_id)
-    print(f"[live] Converted {len(bedrock_spans)} spans from Bedrock traces")
-    
-    # Combine all spans
-    all_spans = list(spans) + list(bedrock_spans)
-    
-    # Build trace
-    trace = build_trace_from_spans(all_spans)
-    
-    return trace, {
-        "session_id": response.session_id,
-        "completion": response.completion,
-        "trace_count": len(response.traces),
-        "start_time": start_time.isoformat(),
-        "end_time": end_time.isoformat(),
-    }
+    return list(spans)
 
 
 def _cmd_run(args: argparse.Namespace) -> int:
