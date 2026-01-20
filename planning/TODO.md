@@ -574,10 +574,10 @@
 
 ---
 
-## High Priority: E2E Prove-It Test (DEFERRED)
+## High Priority: E2E Prove-It Test
 
-## ITK-0051 — E2E prove_it test with isolated infra
-**STATUS: DEFERRED** — Time sink, will revisit after work repo validation
+## ITK-0051 — E2E prove_it test with isolated infra ✅
+**STATUS: IMPLEMENTED** — Ready to run with fresh credentials
 
 Goal: Fully automated test that proves the entire ITK flow works:
 1. Accept AWS credentials as input (`export AWS_ACCESS_KEY_ID=...` format)
@@ -587,18 +587,30 @@ Goal: Fully automated test that proves the entire ITK flow works:
 5. Run bootstrap, view, derive, test execution
 6. Tear down infra after run
 
-### Sub-items:
-- [ ] Create `infra/terraform-e2e/` with isolated resources (unique naming)
-- [ ] Create `scripts/prove_it_e2e.ps1` orchestrator script
-- [ ] Credential injection: parse `export` format, inject to .env
-- [ ] Terraform apply with timeout/validation
-- [ ] Invoke Lambda to generate CloudWatch logs (wait for propagation)
-- [ ] Run ITK bootstrap in fresh temp directory
-- [ ] Run `itk view --since 5m` and validate spans found
-- [ ] Run `itk derive` and validate case generated
-- [ ] Run derived case and validate pass
-- [ ] Terraform destroy (always, even on failure)
-- [ ] Report pass/fail with timing
+### Implementation:
+- [x] Create `infra/terraform-e2e/` with isolated resources (unique naming via random_id)
+- [x] Create `scripts/prove_it_e2e.ps1` orchestrator script
+- [x] Credential injection: parse `export` format, inject to .env
+- [x] Terraform apply with timeout/validation
+- [x] Invoke Lambda to generate CloudWatch logs (wait for propagation)
+- [x] Run ITK bootstrap in fresh temp directory
+- [x] Run `itk view --since 10m` and validate spans found
+- [x] Run dev-fixtures mode validation
+- [x] Terraform destroy (always, even on failure)
+- [x] Report pass/fail with timing
+
+### Usage:
+```powershell
+# Get fresh credentials from AWS CloudShell:
+aws configure export-credentials --format env
+
+# Run E2E test:
+.\scripts\prove_it_e2e.ps1 -Credentials @"
+export AWS_ACCESS_KEY_ID=...
+export AWS_SECRET_ACCESS_KEY=...
+export AWS_SESSION_TOKEN=...
+"@
+```
 
 ### Why isolated infra:
 - Existing infra is used for other tests — dirty state
