@@ -2903,6 +2903,97 @@ def _cmd_init(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_discover_correlations(args: argparse.Namespace) -> int:
+    """Discover correlation chains from logs without uniform trace IDs."""
+    from itk.correlation.dynamic_discovery import (
+        discover_correlations,
+        summarize_chains,
+        parse_log_stream,
+    )
+
+    logs_path = Path(args.logs)
+    out_dir = Path(args.out)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    # Load logs
+    if not logs_path.exists():
+        print(f"Error: Log file not found: {logs_path}", file=sys.stderr)
+        return 1
+
+    print(f"Loading logs from: {logs_path}")
+    logs: list[dict] = []
+    with open(logs_path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                try:
+                    logs.append(json.loads(line))
+                except json.JSONDecodeError:
+                    pass  # Skip non-JSON lines
+
+    print(f"Loaded {len(logs)} log entries")
+
+    # Discover correlations
+    chains = discover_correlations(logs)
+
+    # Print summary
+    print()
+    print(summarize_chains(chains))
+
+    # Write artifacts
+    # 1. Summary text
+    summary_path = out_dir / "correlation_summary.txt"
+    summary_path.write_text(summarize_chains(chains), encoding="utf-8")
+
+    # 2. Detailed JSON
+    chains_data = []
+    for i, chain in enumerate(chains, 1):
+        chains_data.append({
+            "chain_id": i,
+            "components": chain.components,
+            "component_count": chain.component_count,
+            "entry_count": len(chain.entries),
+            "bridge_values": {
+                v: list(comps) for v, comps in chain.bridge_values.items()
+            },
+            "entries": [
+                {
+                    "index": e.index,
+                    "component": e.component,
+                    "timestamp": e.timestamp,
+                    "values": [cv.value for cv in e.correlation_values],
+                }
+                for e in chain.entries
+            ],
+        })
+
+    json_path = out_dir / "correlation_chains.json"
+    json_path.write_text(json.dumps(chains_data, indent=2), encoding="utf-8")
+
+    # 3. Component summary
+    entries = parse_log_stream(logs)
+    component_counts: dict[str, int] = {}
+    for entry in entries:
+        component_counts[entry.component] = component_counts.get(entry.component, 0) + 1
+
+    components_path = out_dir / "components_detected.json"
+    components_path.write_text(
+        json.dumps({
+            "components": component_counts,
+            "total_entries": len(entries),
+            "chains_found": len(chains),
+        }, indent=2),
+        encoding="utf-8",
+    )
+
+    print(f"Artifacts written to: {out_dir}")
+    print(f"  • {summary_path.name}")
+    print(f"  • {json_path.name}")
+    print(f"  • {components_path.name}")
+
+    return 0
+
+
 def main() -> None:
     # Force UTF-8 output on Windows to handle emoji in output
     import io
@@ -3414,6 +3505,23 @@ def main() -> None:
         help="Overwrite existing files",
     )
     p_init.set_defaults(func=_cmd_init)
+
+    # discover-correlations - dynamic correlation discovery
+    p_discover_corr = sub.add_parser(
+        "discover-correlations",
+        help="Discover correlation chains from logs without uniform trace IDs",
+    )
+    p_discover_corr.add_argument(
+        "--logs",
+        required=True,
+        help="Path to JSONL log file to analyze",
+    )
+    p_discover_corr.add_argument(
+        "--out",
+        required=True,
+        help="Output directory for correlation artifacts",
+    )
+    p_discover_corr.set_defaults(func=_cmd_discover_correlations)
 
     args = p.parse_args()
     
