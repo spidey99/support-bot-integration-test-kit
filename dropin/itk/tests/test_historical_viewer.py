@@ -38,6 +38,7 @@ def make_span(
     operation: str = "invoke",
     trace_id: str | None = "trace-abc",
     session_id: str | None = None,
+    bedrock_session_id: str | None = None,
     request_id: str | None = None,
     ts_start: str | None = "2026-01-18T10:00:00Z",
     ts_end: str | None = "2026-01-18T10:00:01Z",
@@ -58,7 +59,8 @@ def make_span(
         attempt=attempt,
         itk_trace_id=trace_id,
         lambda_request_id=request_id,
-        bedrock_session_id=session_id,
+        bedrock_session_id=bedrock_session_id,
+        session_id=session_id,
     )
 
 
@@ -80,8 +82,21 @@ class TestGroupSpansByExecution(unittest.TestCase):
         self.assertEqual(len(groups["trace-2"]), 1)
         self.assertEqual(len(orphans), 0)
 
+    def test_groups_by_bedrock_session_id_fallback(self) -> None:
+        """Spans with bedrock_session_id but no trace_id are grouped by session."""
+        spans = [
+            make_span(span_id="s1", trace_id=None, bedrock_session_id="bedrock-session-1"),
+            make_span(span_id="s2", trace_id=None, bedrock_session_id="bedrock-session-1"),
+        ]
+        
+        groups, orphans = group_spans_by_execution(spans)
+        
+        self.assertEqual(len(groups), 1)
+        self.assertIn("bedrock-session-1", groups)
+        self.assertEqual(len(groups["bedrock-session-1"]), 2)
+
     def test_groups_by_session_id_fallback(self) -> None:
-        """Spans with session_id but no trace_id are grouped by session."""
+        """Spans with session_id but no trace_id or bedrock_session_id are grouped by session."""
         spans = [
             make_span(span_id="s1", trace_id=None, session_id="session-1"),
             make_span(span_id="s2", trace_id=None, session_id="session-1"),
