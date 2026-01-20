@@ -30,7 +30,99 @@ FIELD_MAPPINGS = {
 }
 
 # Common parent keys that may wrap log data
-NESTED_PARENT_KEYS = ["data", "log", "record", "event", "span", "context", "detail", "body", "payload", "attributes"]
+NESTED_PARENT_KEYS = ["data", "log", "record", "event", "span", "context", "detail", "body", "payload", "attributes", "message"]
+
+# Maximum depth for parsing stringified JSON to prevent infinite recursion
+MAX_STRINGIFY_DEPTH = 5
+
+
+def try_parse_stringified_json(value: Any, depth: int = 0) -> Any:
+    """
+    Attempt to parse stringified JSON from a string value, recursively.
+    
+    Handles cases where JSON is stringified (potentially multiple times):
+    - '{"component": "lambda"}' -> {"component": "lambda"}
+    - '"{\"component\": \"lambda\"}"' -> {"component": "lambda"}
+    
+    Args:
+        value: The value to attempt parsing (only strings are parsed).
+        depth: Current recursion depth to prevent infinite loops.
+        
+    Returns:
+        Parsed object if value was valid JSON, otherwise original value.
+    """
+    if depth > MAX_STRINGIFY_DEPTH:
+        return value
+    
+    if not isinstance(value, str):
+        return value
+    
+    stripped = value.strip()
+    if not stripped:
+        return value
+    
+    # Only try to parse if it looks like JSON (starts with { or [, or is a quoted string)
+    if not (stripped.startswith(("{", "[", '"'))):
+        return value
+    
+    try:
+        parsed = json.loads(stripped)
+        # If parsed result is also a string, try parsing again (double-stringified JSON)
+        if isinstance(parsed, str):
+            return try_parse_stringified_json(parsed, depth + 1)
+        # If parsed result is a dict, recursively parse any string values
+        if isinstance(parsed, dict):
+            return parse_stringified_json_in_dict(parsed, depth + 1)
+        # If parsed result is a list, recursively parse items
+        if isinstance(parsed, list):
+            return [try_parse_stringified_json(item, depth + 1) for item in parsed]
+        return parsed
+    except (json.JSONDecodeError, TypeError):
+        return value
+
+
+def parse_stringified_json_in_dict(obj: dict[str, Any], depth: int = 0) -> dict[str, Any]:
+    """
+    Recursively parse any stringified JSON within dictionary values.
+    
+    Handles nested stringified JSON in any string field:
+    - {"message": '{"component": "lambda"}'} -> {"message": {"component": "lambda"}}
+    - {"data": '{"nested": "{\\"deep\\": true}"}'} -> {"data": {"nested": {"deep": true}}}
+    
+    Args:
+        obj: Dictionary to process
+        depth: Current recursion depth
+        
+    Returns:
+        Dictionary with any stringified JSON values parsed
+    """
+    if depth > MAX_STRINGIFY_DEPTH:
+        return obj
+    
+    result: dict[str, Any] = {}
+    for key, value in obj.items():
+        if isinstance(value, str):
+            result[key] = try_parse_stringified_json(value, depth)
+        elif isinstance(value, dict):
+            result[key] = parse_stringified_json_in_dict(value, depth + 1)
+        elif isinstance(value, list):
+            result[key] = _parse_list_items(value, depth + 1)
+        else:
+            result[key] = value
+    return result
+
+
+def _parse_list_items(items: list[Any], depth: int) -> list[Any]:
+    """Parse stringified JSON in list items."""
+    parsed: list[Any] = []
+    for item in items:
+        if isinstance(item, str):
+            parsed.append(try_parse_stringified_json(item, depth))
+        elif isinstance(item, dict):
+            parsed.append(parse_stringified_json_in_dict(item, depth))
+        else:
+            parsed.append(item)
+    return parsed
 
 
 def extract_field(obj: dict[str, Any], canonical_name: str, default: Any = None) -> Any:
@@ -53,7 +145,7 @@ def extract_field(obj: dict[str, Any], canonical_name: str, default: Any = None)
     return default
 
 
-def flatten_nested_log(obj: dict[str, Any]) -> dict[str, Any]:
+def flatten_nested_log(obj: dict[str, Any], parse_stringified: bool = True) -> dict[str, Any]:
     """
     Flatten a nested log structure by merging common wrapper keys into root.
     
@@ -61,7 +153,16 @@ def flatten_nested_log(obj: dict[str, Any]) -> dict[str, Any]:
     - {"data": {"component": "lambda", ...}, "timestamp": "..."}
     - {"log": {"span_type": "sqs", ...}, "metadata": {...}}
     - {"record": {"operation": "invoke"}, "level": "INFO"}
+    - {"message": '{"component": "lambda", ...}'} (stringified JSON)
+    
+    Args:
+        obj: Log object to flatten
+        parse_stringified: Whether to parse stringified JSON in string fields
     """
+    # First, parse any stringified JSON values
+    if parse_stringified:
+        obj = parse_stringified_json_in_dict(obj)
+    
     result = dict(obj)  # Start with root fields
     
     for parent_key in NESTED_PARENT_KEYS:
@@ -83,7 +184,11 @@ def normalize_log_to_span(obj: dict[str, Any]) -> Span | None:
     - Missing span_id (auto-generate)
     - Different timestamp formats
     - Nested structures
+    - Stringified JSON in string fields (potentially nested multiple times)
     """
+    # First, parse any stringified JSON in the object
+    obj = parse_stringified_json_in_dict(obj)
+    
     # Skip non-span log entries (debug, plain messages, etc.)
     # A span needs at least component/operation or recognizable structure
     component = extract_field(obj, "component")
@@ -92,12 +197,14 @@ def normalize_log_to_span(obj: dict[str, Any]) -> Span | None:
     # If no component, try to infer from message
     if not component:
         message = obj.get("message", "")
-        if "lambda" in message.lower() or "handler" in message.lower():
-            component = "lambda"
-        elif "bedrock" in message.lower() or "model" in message.lower():
-            component = "bedrock"
-        elif "sqs" in message.lower() or "queue" in message.lower():
-            component = "sqs"
+        # Message could be a string or parsed dict; only infer from strings
+        if isinstance(message, str):
+            if "lambda" in message.lower() or "handler" in message.lower():
+                component = "lambda"
+            elif "bedrock" in message.lower() or "model" in message.lower():
+                component = "bedrock"
+            elif "sqs" in message.lower() or "queue" in message.lower():
+                component = "sqs"
     
     # Must have at least component or operation to be a span
     if not component and not operation:
@@ -111,11 +218,15 @@ def normalize_log_to_span(obj: dict[str, Any]) -> Span | None:
         ts = extract_field(obj, "ts_start", "")
         span_id = f"auto-{uuid.uuid5(uuid.NAMESPACE_DNS, f'{trace_id}:{operation}:{ts}').hex[:12]}"
     
+    # Determine operation fallback (message can be string or dict after parsing)
+    message_val = obj.get("message", "unknown")
+    operation_fallback = message_val if isinstance(message_val, str) else "unknown"
+    
     return Span(
         span_id=span_id,
         parent_span_id=extract_field(obj, "parent_span_id"),
         component=component or "unknown",
-        operation=operation or obj.get("message", "unknown"),
+        operation=operation or operation_fallback,
         ts_start=extract_field(obj, "ts_start"),
         ts_end=extract_field(obj, "ts_end"),
         attempt=extract_field(obj, "attempt"),
