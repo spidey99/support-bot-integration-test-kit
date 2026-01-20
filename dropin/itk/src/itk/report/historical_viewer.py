@@ -716,6 +716,10 @@ def fetch_logs_for_time_window(
 ) -> list[dict[str, Any]]:
     """Fetch CloudWatch logs for a time window.
     
+    Uses Logs Insights for efficiency, but falls back to filter_log_events
+    if Logs Insights returns 0 results (common on newly-created log groups
+    due to indexing delay).
+    
     Args:
         log_groups: List of log group names to query.
         start_time: Start of time window.
@@ -739,7 +743,69 @@ def fetch_logs_for_time_window(
     
     result = cw_client.run_query(query)
     
-    return [
+    events = [
         {"timestamp": r.get("@timestamp", ""), "message": r.get("@message", "")}
         for r in result.results
     ]
+    
+    # Fallback: If Logs Insights returns 0 results, try filter_log_events
+    # This handles the indexing delay on newly-created log groups
+    if not events and log_groups:
+        events = _fetch_logs_with_filter(log_groups, start_time, end_time, region, limit)
+    
+    return events
+
+
+def _fetch_logs_with_filter(
+    log_groups: list[str],
+    start_time: datetime,
+    end_time: datetime,
+    region: str,
+    limit: int,
+) -> list[dict[str, Any]]:
+    """Fallback log fetcher using filter_log_events API.
+    
+    This is slower than Logs Insights but works immediately on new log groups
+    without waiting for indexing.
+    """
+    import boto3
+    
+    client = boto3.client("logs", region_name=region)
+    events: list[dict[str, Any]] = []
+    
+    start_ms = int(start_time.timestamp() * 1000)
+    end_ms = int(end_time.timestamp() * 1000)
+    
+    for log_group in log_groups:
+        try:
+            paginator = client.get_paginator("filter_log_events")
+            page_iterator = paginator.paginate(
+                logGroupName=log_group,
+                startTime=start_ms,
+                endTime=end_ms,
+                limit=min(limit, 10000),  # API max is 10000 per page
+            )
+            
+            for page in page_iterator:
+                for event in page.get("events", []):
+                    # Convert timestamp from epoch ms to ISO format
+                    ts_ms = event.get("timestamp", 0)
+                    ts_dt = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc)
+                    events.append({
+                        "timestamp": ts_dt.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+                        "message": event.get("message", ""),
+                    })
+                    
+                    if len(events) >= limit:
+                        break
+                
+                if len(events) >= limit:
+                    break
+                    
+        except Exception:
+            # Log group might not exist or be inaccessible
+            continue
+    
+    # Sort by timestamp
+    events.sort(key=lambda e: e.get("timestamp", ""))
+    return events[:limit]
