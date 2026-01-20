@@ -1,7 +1,7 @@
 # Support Bot Integration Test Kit (ITK)
 
 [![Tests](https://img.shields.io/badge/tests-461%20passed-brightgreen)]()
-[![Python](https://img.shields.io/badge/python-3.10+-blue)]()
+[![Python](https://img.shields.io/badge/python-3.11+-blue)]()
 
 **ITK** is a drop-in integration testing toolkit for AWS-based support bot systems using Bedrock Agents, Lambda, and SQS.
 
@@ -68,8 +68,16 @@ If you're developing ITK itself (not using it in a work repo):
 # Clone and setup
 git clone https://github.com/spidey99/support-bot-integration-test-kit.git
 cd support-bot-integration-test-kit/dropin/itk
-python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
+
+# Create virtual environment with Python 3.11+
+# IMPORTANT: ITK requires Python 3.11 or newer
+python3.11 -m venv .venv              # Use python3.11, python3.12, etc.
+source .venv/bin/activate             # Windows: .venv\Scripts\activate
+
+# Verify Python version (must be 3.11+)
+python --version                      # Should show Python 3.11.x or higher
+
+# Install ITK
 pip install -e ".[dev]"
 
 # Run with fixtures (no AWS)
@@ -78,6 +86,10 @@ itk run --mode dev-fixtures --case cases/example-001.yaml --out artifacts/demo/
 # Open the trace viewer
 open artifacts/demo/trace-viewer.html
 ```
+
+> **⚠️ Python Version Note:** If you see errors like `SyntaxError` or `ModuleNotFoundError`, 
+> verify you're using Python 3.11 or newer. Run `python --version` inside your virtual 
+> environment to confirm.
 
 ## Quickstart: Tier 3 (Work Repo Integration)
 

@@ -6,6 +6,35 @@ applyTo: "dropin/itk/**,tools/itk/**"
 
 You are a Tier-3 agent working in the work repo with live AWS access.
 
+## 🐍 Python Environment Setup (CRITICAL)
+
+**ITK requires Python 3.11 or newer.** Using an older version causes errors.
+
+Before running any ITK commands, verify or set up the Python environment:
+
+```bash
+# Check if virtual environment exists and has correct Python
+if [ -d ".venv" ]; then
+    source .venv/bin/activate
+    python --version  # Must show 3.11+
+else
+    # Create virtual environment with Python 3.11+
+    python3.11 -m venv .venv
+    source .venv/bin/activate
+    pip install -e ".[dev]"
+fi
+```
+
+If `python --version` shows below 3.11:
+```bash
+# Recreate virtual environment with correct Python
+deactivate
+rm -rf .venv
+python3.11 -m venv .venv   # Use python3.11, python3.12, etc.
+source .venv/bin/activate
+pip install -e ".[dev]"
+```
+
 ## 🚨 Critical Safety Rules
 
 1. **ALWAYS run safety check first**: `python dropin/itk/scripts/safety_check.py`
@@ -13,6 +42,7 @@ You are a Tier-3 agent working in the work repo with live AWS access.
 3. **NEVER use dev-fixtures mode for real tests**: `--mode dev-fixtures` is for offline only
 4. **NEVER invent request formats**: Use `itk derive` or existing cases
 5. **ALWAYS verify AWS credentials**: `aws sts get-caller-identity` before any test
+6. **ALWAYS use Python 3.11+**: Check with `python --version`
 
 ## 🚀 Before ANY AWS Operation
 

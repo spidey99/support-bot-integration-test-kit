@@ -10,14 +10,19 @@ git clone https://github.com/spidey99/support-bot-integration-test-kit.git _itk_
 cp -r _itk_temp/dropin/itk tools/itk
 rm -rf _itk_temp
 
-# 2. Install it
+# 2. Create virtual environment with Python 3.11+
 cd tools/itk
+python3.11 -m venv .venv           # IMPORTANT: Use Python 3.11 or newer!
+source .venv/bin/activate          # Windows: .\.venv\Scripts\Activate.ps1
+
+# 3. Verify Python version and install
+python --version                    # Should show Python 3.11.x or higher
 pip install -e ".[dev]"
 
-# 3. Test it works (offline mode, no AWS needed)
+# 4. Test it works (offline mode, no AWS needed)
 itk run --mode dev-fixtures --case cases/example-001.yaml --out artifacts/test-001/
 
-# 4. Open the result
+# 5. Open the result
 start artifacts/test-001/trace-viewer.html   # Windows
 # open artifacts/test-001/trace-viewer.html  # Mac
 ```
@@ -27,7 +32,7 @@ start artifacts/test-001/trace-viewer.html   # Windows
 ---
 
 > **Time**: 5-10 minutes  
-> **You need**: Python 3.10+, AWS CLI configured, QA account access  
+> **You need**: **Python 3.11+**, AWS CLI configured, QA account access  
 > **You DON'T need**: Any AWS access for Steps 1-3 (offline mode)
 
 ---
@@ -62,8 +67,23 @@ Then a new `tools/itk/` folder in your repo.
 
 # Step 2 of 8: Install ITK
 
+**First, set up a Python 3.11+ virtual environment:**
+
 ```bash
 cd tools/itk
+
+# Create virtual environment with Python 3.11 or newer
+python3.11 -m venv .venv           # Use python3.11, python3.12, etc.
+
+# Activate the virtual environment
+source .venv/bin/activate          # Linux/macOS
+# .\.venv\Scripts\Activate.ps1     # Windows PowerShell
+# .\.venv\Scripts\activate.bat     # Windows CMD
+
+# Verify Python version (MUST be 3.11+)
+python --version                    # Should show Python 3.11.x or higher
+
+# Install ITK
 pip install -e ".[dev]"
 ```
 
@@ -101,7 +121,18 @@ Commands:
 |---------|-----|
 | `itk: command not found` | Close and reopen terminal, or run: `python -m itk --help` |
 | `pip: command not found` | Use `pip3` instead of `pip` |
-| Python version error | Need Python 3.10+. Check: `python --version` |
+| Python version error | Need Python 3.11+. Check: `python --version` |
+| `python3.11: command not found` | Install Python 3.11: see table below |
+| `SyntaxError` or import errors | Wrong Python version. Recreate venv with Python 3.11+ |
+
+**Installing Python 3.11+ if needed:**
+
+| OS | Command |
+|----|---------|
+| Ubuntu/Debian | `sudo apt update && sudo apt install python3.11 python3.11-venv` |
+| macOS (Homebrew) | `brew install python@3.11` |
+| Windows | Download from https://www.python.org/downloads/ |
+| Amazon Linux | `sudo yum install python3.11` |
 
 ---
 
