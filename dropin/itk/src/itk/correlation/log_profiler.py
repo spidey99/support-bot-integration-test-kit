@@ -79,6 +79,12 @@ PATTERN_SLACK_MESSAGE_TS = re.compile(
     r"(?:message[_\s]?ts|ts)[\"':\s]*['\"]?(\d{10}\.\d{6})['\"]?",
 )
 
+# SQS / message patterns
+PATTERN_MESSAGE_ID = re.compile(
+    r"(?:message[_\s]?id|messageId)[\"':=\s]*['\"]?([a-zA-Z0-9._-]+)['\"]?",
+    re.IGNORECASE,
+)
+
 # Generic ID patterns
 PATTERN_UUID = re.compile(
     r"\b([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})\b",
@@ -164,6 +170,7 @@ class FactSheet:
     trace_ids: list[str] = field(default_factory=list)
     request_ids: list[str] = field(default_factory=list)
     correlation_ids: list[str] = field(default_factory=list)
+    message_ids: list[str] = field(default_factory=list)  # SQS/SNS message IDs
     
     # Slack-specific
     slack_channels: list[str] = field(default_factory=list)
@@ -193,6 +200,7 @@ class FactSheet:
         keys.update(self.trace_ids)
         keys.update(self.request_ids)
         keys.update(self.correlation_ids)
+        keys.update(self.message_ids)  # SQS/SNS message IDs
         keys.update(self.slack_thread_ts)
         keys.update(self.slack_channels)
         # Don't include UUIDs by default - too noisy
@@ -443,6 +451,12 @@ class LogProfiler:
             corr_id = match.group(1)
             if corr_id not in facts.correlation_ids:
                 facts.correlation_ids.append(corr_id)
+        
+        # Message IDs (SQS, SNS, etc.)
+        for match in PATTERN_MESSAGE_ID.finditer(text):
+            message_id = match.group(1)
+            if message_id not in facts.message_ids and len(message_id) > 3:
+                facts.message_ids.append(message_id)
         
         # Slack channels
         for match in PATTERN_SLACK_CHANNEL.finditer(text):

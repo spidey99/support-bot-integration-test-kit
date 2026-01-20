@@ -1,7 +1,7 @@
 """Dynamic correlation discovery for logs without uniform trace IDs.
 
 This module builds transitive correlation chains by:
-1. Auto-detecting components from log entries
+1. Auto-detecting components from log entries (via LogProfiler deep extraction)
 2. Extracting ALL potential correlation values (not just known ID fields)
 3. Discovering "bridge values" that appear in multiple components
 4. Building chains even without a single ID spanning the full trace
@@ -15,6 +15,11 @@ Example: SQS → Lambda → Slack → Bedrock
 Even though there's no single ID through all 4, we can chain:
 SQS.message_id → Lambda.message_id, Lambda.thread_id → Slack.thread_id,
 Slack.session_id → Bedrock.session_id
+
+Integration with LogProfiler:
+- LogProfiler does deep extraction (embedded JSON, Python dict repr, nested data)
+- This module uses FactSheet.all_correlation_keys() for chain building
+- Component detection now powered by profiler's inference
 """
 from __future__ import annotations
 
@@ -23,6 +28,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any, Iterator, Optional
 
+from itk.correlation.log_profiler import FactSheet, LogProfiler
 from itk.logs.parse import try_parse_python_dict_repr
 
 
@@ -92,6 +98,7 @@ class LogEntry:
     timestamp: Optional[str] = None
     correlation_values: set[CorrelationValue] = field(default_factory=set)
     index: int = 0  # Position in log stream
+    fact_sheet: Optional[FactSheet] = None  # Deep extraction result
     
     def value_strings(self) -> set[str]:
         """Get just the value strings for quick matching."""
@@ -122,17 +129,20 @@ class CorrelationChain:
         return len(set(e.component for e in self.entries))
 
 
-def detect_component(obj: dict[str, Any]) -> str:
+def detect_component(obj: dict[str, Any], fact_sheet: Optional[FactSheet] = None) -> str:
     """
     Detect the component/service from a log entry.
     
-    Uses keywords in field names, values, and logger names.
+    Priority order:
+    1. Explicit component/service/source field in the log entry
+    2. Logger name hints
+    3. App name hints (orchestrator = lambda)
+    4. LogProfiler's deep extraction inference (if fact_sheet provided)
+    5. Keyword-based scoring
+    
     Returns best-matching component or 'unknown'.
     """
-    # Flatten to searchable text
-    searchable = _flatten_to_text(obj).lower()
-    
-    # Check for explicit component field first
+    # Check for explicit component field first (highest priority)
     component = obj.get("component") or obj.get("service") or obj.get("source")
     if component:
         return str(component).lower()
@@ -145,13 +155,19 @@ def detect_component(obj: dict[str, Any]) -> str:
         if "bedrock" in logger.lower():
             return "bedrock"
     
-    # Check appname for hints
+    # Check appname for hints (orchestrator is typically a Lambda)
     appname = obj.get("appname", "")
     if isinstance(appname, str):
         if "orchestrator" in appname.lower():
-            return "lambda"  # Orchestrator is typically a Lambda
+            return "lambda"
     
-    # Score each component by keyword matches
+    # If we have a fact_sheet with component inference, use it
+    # (but only if no explicit fields were found)
+    if fact_sheet and fact_sheet.component:
+        return fact_sheet.component
+    
+    # Fallback: keyword-based scoring
+    searchable = _flatten_to_text(obj).lower()
     scores: dict[str, int] = defaultdict(int)
     for component_name, keywords in COMPONENT_PATTERNS.items():
         for keyword in keywords:
@@ -185,16 +201,117 @@ def _flatten_to_text(obj: Any, depth: int = 0) -> str:
     return ""
 
 
-def extract_correlation_values(obj: dict[str, Any]) -> set[CorrelationValue]:
+def extract_correlation_values(
+    obj: dict[str, Any],
+    fact_sheet: Optional[FactSheet] = None,
+) -> set[CorrelationValue]:
     """
     Extract ALL potential correlation values from a log entry.
     
-    This is intentionally aggressive - we extract anything that MIGHT
-    be a correlation ID, then let the graph analysis determine which
-    values actually correlate entries.
+    Uses LogProfiler's deep extraction (via fact_sheet) if available,
+    which handles:
+    - Embedded JSON in message strings
+    - Python dict repr format
+    - Nested data structures
+    
+    Falls back to pattern-based extraction if no fact_sheet provided.
     """
     values: set[CorrelationValue] = set()
     
+    # If we have a fact_sheet, use the deep extraction results
+    if fact_sheet:
+        # Add agent IDs
+        for agent_id in fact_sheet.agent_ids:
+            values.add(CorrelationValue(
+                value=agent_id,
+                value_type="agent_id",
+                field_name="agent_id",
+                context="profiler",
+            ))
+        
+        # Add session IDs
+        for session_id in fact_sheet.session_ids:
+            values.add(CorrelationValue(
+                value=session_id,
+                value_type="session",
+                field_name="session_id",
+                context="profiler",
+            ))
+        
+        # Add trace IDs
+        for trace_id in fact_sheet.trace_ids:
+            values.add(CorrelationValue(
+                value=trace_id,
+                value_type="trace",
+                field_name="trace_id",
+                context="profiler",
+            ))
+        
+        # Add request IDs
+        for request_id in fact_sheet.request_ids:
+            values.add(CorrelationValue(
+                value=request_id,
+                value_type="lambda_request",
+                field_name="request_id",
+                context="profiler",
+            ))
+        
+        # Add correlation IDs
+        for corr_id in fact_sheet.correlation_ids:
+            values.add(CorrelationValue(
+                value=corr_id,
+                value_type="correlation",
+                field_name="correlation_id",
+                context="profiler",
+            ))
+        
+        # Add message IDs (SQS, SNS, etc.)
+        for msg_id in fact_sheet.message_ids:
+            values.add(CorrelationValue(
+                value=msg_id,
+                value_type="message",
+                field_name="message_id",
+                context="profiler",
+            ))
+        
+        # Add Slack thread timestamps
+        for ts in fact_sheet.slack_thread_ts:
+            values.add(CorrelationValue(
+                value=ts,
+                value_type="slack_ts",
+                field_name="thread_ts",
+                context="profiler",
+            ))
+        
+        # Add Slack channels
+        for channel in fact_sheet.slack_channels:
+            values.add(CorrelationValue(
+                value=channel,
+                value_type="channel",
+                field_name="channel",
+                context="profiler",
+            ))
+        
+        # Add Slack users
+        for user in fact_sheet.slack_users:
+            values.add(CorrelationValue(
+                value=user,
+                value_type="user",
+                field_name="user",
+                context="profiler",
+            ))
+        
+        # Add UUIDs (but mark them - they can be noisy)
+        for uuid_val in fact_sheet.uuids:
+            values.add(CorrelationValue(
+                value=uuid_val,
+                value_type="uuid",
+                context="profiler",
+            ))
+        
+        return values
+    
+    # Fallback: original pattern-based extraction
     # Get all text to search
     text = _flatten_to_text(obj)
     
@@ -390,17 +507,31 @@ def _unwrap_cloudwatch_format(obj: dict[str, Any]) -> dict[str, Any]:
     return obj
 
 
+# Shared profiler instance for consistent deep extraction
+_profiler = LogProfiler()
+
+
 def parse_log_entry(obj: dict[str, Any], index: int = 0) -> LogEntry:
-    """Parse a raw log object into a LogEntry with component and correlation values."""
+    """Parse a raw log object into a LogEntry with component and correlation values.
+    
+    Uses LogProfiler for deep extraction of identifiers from:
+    - Embedded JSON in message strings
+    - Python dict repr format  
+    - Nested data structures
+    """
     # Unwrap CloudWatch format if needed
     unwrapped = _unwrap_cloudwatch_format(obj)
     
+    # Use profiler for deep extraction
+    fact_sheet = _profiler.profile(unwrapped)
+    
     return LogEntry(
         raw=unwrapped,
-        component=detect_component(unwrapped),
+        component=detect_component(unwrapped, fact_sheet),
         timestamp=unwrapped.get("timestamp") or unwrapped.get("time") or unwrapped.get("@timestamp"),
-        correlation_values=extract_correlation_values(unwrapped),
+        correlation_values=extract_correlation_values(unwrapped, fact_sheet),
         index=index,
+        fact_sheet=fact_sheet,
     )
 
 
