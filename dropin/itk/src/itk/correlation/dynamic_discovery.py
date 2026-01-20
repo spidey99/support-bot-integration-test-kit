@@ -340,13 +340,66 @@ def _extract_patterns_from_text(text: str, values: set[CorrelationValue]) -> Non
         ))
 
 
+def _unwrap_cloudwatch_format(obj: dict[str, Any]) -> dict[str, Any]:
+    """
+    Unwrap CloudWatch log format if detected.
+    
+    CloudWatch format: {"timestamp": ..., "message": "<stringified JSON or dict>"}
+    Returns the unwrapped object or the original if not CloudWatch format.
+    """
+    # Check if this looks like CloudWatch format
+    # CloudWatch events typically have: timestamp (int), message (str), other metadata
+    message = obj.get("message")
+    if not isinstance(message, str):
+        return obj
+    
+    # Check if 'message' looks like it contains another structured log
+    # NOT CloudWatch format: {"message": "Some text", "level": "INFO", ...}
+    # IS CloudWatch format: {"timestamp": 123, "message": "{\"appname\":...}"}
+    
+    # If the object has fields like appname, level, logger_name - it's already unwrapped
+    if any(k in obj for k in ("appname", "level", "logger_name", "component")):
+        return obj
+    
+    # Try to parse the message as JSON or Python dict repr
+    import json as json_module
+    
+    inner: dict[str, Any] | None = None
+    
+    # Try JSON first
+    try:
+        parsed = json_module.loads(message)
+        if isinstance(parsed, dict):
+            inner = parsed
+    except json_module.JSONDecodeError:
+        pass
+    
+    # Try Python dict repr (single quotes)
+    if inner is None:
+        inner = try_parse_python_dict_repr(message)
+    
+    if inner:
+        # Merge with CloudWatch metadata
+        result = dict(inner)
+        if "timestamp" not in result and "timestamp" in obj:
+            result["timestamp"] = obj["timestamp"]
+        if "@timestamp" not in result and "@timestamp" in obj:
+            result["@timestamp"] = obj["@timestamp"]
+        return result
+    
+    return obj
+
+
 def parse_log_entry(obj: dict[str, Any], index: int = 0) -> LogEntry:
     """Parse a raw log object into a LogEntry with component and correlation values."""
+    # Unwrap CloudWatch format if needed
+    unwrapped = _unwrap_cloudwatch_format(obj)
+    
     return LogEntry(
-        raw=obj,
-        component=detect_component(obj),
-        timestamp=obj.get("timestamp") or obj.get("time") or obj.get("@timestamp"),
-        correlation_values=extract_correlation_values(obj),
+        raw=unwrapped,
+        component=detect_component(unwrapped),
+        timestamp=unwrapped.get("timestamp") or unwrapped.get("time") or unwrapped.get("@timestamp"),
+        correlation_values=extract_correlation_values(unwrapped),
         index=index,
     )
 
@@ -470,3 +523,107 @@ def summarize_chains(chains: list[CorrelationChain]) -> str:
         lines.append("")
     
     return "\n".join(lines)
+
+
+def chain_to_spans(chain: CorrelationChain, chain_id: str) -> list["Span"]:
+    """
+    Convert a CorrelationChain to a list of Spans.
+    
+    Uses the chain's primary bridge value as the correlation ID,
+    allowing the chain to be treated as a single execution/trace.
+    
+    Args:
+        chain: The correlation chain to convert
+        chain_id: Unique identifier for this chain (used as trace ID)
+        
+    Returns:
+        List of Span objects that can be used for diagram generation.
+    """
+    from itk.trace.span_model import Span
+    
+    spans: list[Span] = []
+    
+    # Find primary bridge value (appears in most components)
+    primary_bridge: str | None = None
+    if chain.bridge_values:
+        # Sort by number of components, pick the one spanning the most
+        sorted_bridges = sorted(
+            chain.bridge_values.items(),
+            key=lambda x: len(x[1]),
+            reverse=True,
+        )
+        if sorted_bridges:
+            primary_bridge = sorted_bridges[0][0]
+    
+    for i, entry in enumerate(chain.entries):
+        # Extract operation from log entry
+        operation = _infer_operation(entry.raw)
+        
+        # Get timestamp
+        ts = entry.timestamp
+        if isinstance(ts, (int, float)):
+            # Convert epoch ms to ISO format
+            from datetime import datetime, timezone
+            try:
+                ts = datetime.fromtimestamp(ts / 1000, tz=timezone.utc).isoformat()
+            except (OSError, ValueError):
+                ts = str(ts)
+        
+        # Extract any thread_id/session_id from correlation values
+        thread_id = None
+        session_id = None
+        for cv in entry.correlation_values:
+            if cv.value_type == "slack_ts":
+                thread_id = cv.value
+                session_id = cv.value  # Also use as session_id
+                break
+        
+        span = Span(
+            span_id=f"{chain_id}-{i}",
+            parent_span_id=f"{chain_id}-{i-1}" if i > 0 else None,
+            component=entry.component,
+            operation=operation,
+            ts_start=ts,
+            itk_trace_id=chain_id,
+            thread_id=thread_id or primary_bridge,
+            session_id=session_id or primary_bridge,
+            request=entry.raw.get("request"),
+            response=entry.raw.get("response"),
+            error=entry.raw.get("error"),
+        )
+        spans.append(span)
+    
+    return spans
+
+
+def _infer_operation(obj: dict[str, Any]) -> str:
+    """Infer operation name from log entry."""
+    # Check explicit fields
+    for field in ("operation", "op", "action", "event", "method"):
+        if field in obj:
+            return str(obj[field])
+    
+    # Check logger_name for hints
+    logger = obj.get("logger_name", "")
+    if logger:
+        parts = logger.split(".")
+        if len(parts) > 1:
+            return parts[-1]
+    
+    # Check message for operation hints
+    message = obj.get("message", "")
+    if isinstance(message, str):
+        # Look for common patterns
+        if "received" in message.lower():
+            return "receive"
+        if "sending" in message.lower() or "sent" in message.lower():
+            return "send"
+        if "invoking" in message.lower() or "invoked" in message.lower():
+            return "invoke"
+        if "response" in message.lower():
+            return "response"
+        if "error" in message.lower():
+            return "error"
+    
+    return "log"
+

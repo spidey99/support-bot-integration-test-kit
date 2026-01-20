@@ -7,6 +7,7 @@ from itk.correlation.dynamic_discovery import (
     CorrelationValue,
     LogEntry,
     build_correlation_chains,
+    chain_to_spans,
     detect_component,
     discover_correlations,
     extract_correlation_values,
@@ -322,3 +323,115 @@ class TestSummarizeChains:
         assert "Chain 1" in summary
         assert "lambda" in summary
         assert "bedrock" in summary
+
+
+class TestCloudWatchUnwrapping:
+    """Test CloudWatch format unwrapping in parse_log_entry."""
+
+    def test_unwrap_cloudwatch_json_message(self) -> None:
+        """Unwrap CloudWatch event with JSON in message field."""
+        import json
+        inner = {
+            "appname": "support-bot-orchestrator",
+            "level": "INFO",
+            "logger_name": "main",
+            "message": "Event received",
+        }
+        cloudwatch_event = {
+            "timestamp": 1750000000000,
+            "message": json.dumps(inner),
+        }
+        entry = parse_log_entry(cloudwatch_event)
+        # Should detect lambda from appname
+        assert entry.component == "lambda"
+        # Should have inner structure accessible
+        assert entry.raw.get("appname") == "support-bot-orchestrator"
+
+    def test_unwrap_cloudwatch_python_dict_repr(self) -> None:
+        """Unwrap CloudWatch event with Python dict repr in message field."""
+        cloudwatch_event = {
+            "timestamp": 1750000000000,
+            "message": "{'appname': 'support-bot-orchestrator', 'level': 'INFO', 'ts': '1768927632.159269'}",
+        }
+        entry = parse_log_entry(cloudwatch_event)
+        # Should extract thread_id pattern
+        assert "1768927632.159269" in entry.value_strings()
+
+    def test_already_unwrapped_not_double_processed(self) -> None:
+        """Already unwrapped logs (with appname) should not be re-processed."""
+        direct_log = {
+            "appname": "support-bot-orchestrator",
+            "level": "INFO",
+            "message": "{'ts': '1768927632.159269'}",
+            "timestamp": "2025-06-20T17:27:12.268959",
+        }
+        entry = parse_log_entry(direct_log)
+        assert entry.component == "lambda"
+        assert "1768927632.159269" in entry.value_strings()
+
+    def test_preserve_timestamp_from_cloudwatch(self) -> None:
+        """CloudWatch timestamp should be preserved in unwrapped entry."""
+        cloudwatch_event = {
+            "timestamp": 1750000000000,
+            "message": '{"level": "INFO", "msg": "hello"}',
+        }
+        entry = parse_log_entry(cloudwatch_event)
+        assert entry.timestamp == 1750000000000
+
+
+class TestChainToSpans:
+    """Test converting CorrelationChain to Spans for diagram generation."""
+
+    def test_chain_to_spans_basic(self) -> None:
+        """Convert a chain with 2 entries to spans."""
+        entries = [
+            LogEntry(
+                raw={"message": "request received"},
+                component="lambda",
+                timestamp="2025-06-20T17:27:12Z",
+                correlation_values={CorrelationValue("1768927632.159269", "slack_ts")},
+                index=0,
+            ),
+            LogEntry(
+                raw={"message": "calling bedrock"},
+                component="bedrock",
+                timestamp="2025-06-20T17:27:13Z",
+                correlation_values={CorrelationValue("1768927632.159269", "slack_ts")},
+                index=1,
+            ),
+        ]
+        chains = build_correlation_chains(entries)
+        assert len(chains) == 1
+        
+        spans = chain_to_spans(chains[0], "test-chain-001")
+        assert len(spans) == 2
+        assert spans[0].component == "lambda"
+        assert spans[1].component == "bedrock"
+        assert spans[0].itk_trace_id == "test-chain-001"
+        assert spans[1].itk_trace_id == "test-chain-001"
+        # First span has no parent
+        assert spans[0].parent_span_id is None
+        # Second span's parent is first
+        assert spans[1].parent_span_id == "test-chain-001-0"
+
+    def test_chain_to_spans_uses_thread_id_as_session(self) -> None:
+        """Chain with Slack thread_id should use it as session_id."""
+        entries = [
+            LogEntry(
+                raw={},
+                component="slack",
+                correlation_values={CorrelationValue("1768927632.159269", "slack_ts")},
+            ),
+        ]
+        chains = build_correlation_chains(entries)
+        # Single entry won't form a chain, so build directly
+        from itk.correlation.dynamic_discovery import CorrelationChain
+        chain = CorrelationChain(
+            entries=entries,
+            bridge_values={"1768927632.159269": {"slack"}},
+        )
+        
+        spans = chain_to_spans(chain, "test-001")
+        assert len(spans) == 1
+        assert spans[0].thread_id == "1768927632.159269"
+        assert spans[0].session_id == "1768927632.159269"

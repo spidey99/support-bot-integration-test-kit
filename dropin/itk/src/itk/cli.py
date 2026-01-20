@@ -2914,6 +2914,7 @@ def _cmd_discover_correlations(args: argparse.Namespace) -> int:
     logs_path = Path(args.logs)
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
+    debug = getattr(args, "debug", False)
 
     # Load logs
     if not logs_path.exists():
@@ -2922,16 +2923,63 @@ def _cmd_discover_correlations(args: argparse.Namespace) -> int:
 
     print(f"Loading logs from: {logs_path}")
     logs: list[dict] = []
-    with open(logs_path, "r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                try:
-                    logs.append(json.loads(line))
-                except json.JSONDecodeError:
-                    pass  # Skip non-JSON lines
+    
+    # Try loading as JSON array first (single JSON object wrapping all events)
+    content = logs_path.read_text(encoding="utf-8").strip()
+    if content.startswith("["):
+        try:
+            parsed = json.loads(content)
+            if isinstance(parsed, list):
+                logs = [e for e in parsed if isinstance(e, dict)]
+                print(f"  (Detected JSON array format)")
+        except json.JSONDecodeError:
+            pass
+    
+    # Fall back to JSONL (one JSON object per line)
+    if not logs:
+        with open(logs_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    try:
+                        logs.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        pass  # Skip non-JSON lines
 
     print(f"Loaded {len(logs)} log entries")
+
+    # Parse into LogEntry objects to see what's extracted
+    entries = parse_log_stream(logs)
+
+    # Debug output
+    if debug:
+        print("\n=== DEBUG: First 5 entries ===")
+        for entry in entries[:5]:
+            print(f"\nEntry {entry.index}:")
+            print(f"  Component: {entry.component}")
+            print(f"  Timestamp: {entry.timestamp}")
+            values = [cv.value for cv in entry.correlation_values]
+            print(f"  Correlation values ({len(values)}): {values[:10]}...")
+            # Show raw keys to help debug format
+            print(f"  Raw keys: {list(entry.raw.keys())}")
+        
+        # Component summary
+        comp_counts: dict[str, int] = {}
+        for e in entries:
+            comp_counts[e.component] = comp_counts.get(e.component, 0) + 1
+        print(f"\n=== Components detected ({len(comp_counts)}) ===")
+        for comp, count in sorted(comp_counts.items(), key=lambda x: -x[1]):
+            print(f"  {comp}: {count} entries")
+        
+        # Value frequency
+        value_counts: dict[str, int] = {}
+        for e in entries:
+            for cv in e.correlation_values:
+                value_counts[cv.value] = value_counts.get(cv.value, 0) + 1
+        shared = {v: c for v, c in value_counts.items() if c >= 2}
+        print(f"\n=== Shared values (appear in 2+ entries): {len(shared)} ===")
+        for v, c in sorted(shared.items(), key=lambda x: -x[1])[:20]:
+            print(f"  {v}: {c} entries")
 
     # Discover correlations
     chains = discover_correlations(logs)
@@ -2992,6 +3040,269 @@ def _cmd_discover_correlations(args: argparse.Namespace) -> int:
     print(f"  • {components_path.name}")
 
     return 0
+
+
+def _cmd_trace(args: argparse.Namespace) -> int:
+    """
+    Unified trace command: discover correlations and generate diagrams.
+    
+    This is the recommended e2e command for analyzing logs without uniform
+    trace IDs. It:
+    1. Loads raw logs (JSON array or JSONL)
+    2. Discovers correlations using transitive chain building
+    3. Converts each chain to Spans
+    4. Generates sequence diagrams for each chain
+    """
+    from itk.correlation.dynamic_discovery import (
+        discover_correlations,
+        summarize_chains,
+        chain_to_spans,
+    )
+    from itk.diagrams.trace_viewer import render_trace_viewer
+    from itk.diagrams.timeline_view import render_mini_timeline
+    from itk.trace.trace_model import Trace
+    
+    logs_path = Path(args.logs)
+    out_dir = Path(args.out)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    debug = getattr(args, "debug", False)
+    min_components = getattr(args, "min_components", 2)
+    
+    print("ITK Trace - Unified Log Analysis")
+    print("=" * 40)
+    
+    # Load logs
+    if not logs_path.exists():
+        print(f"Error: Log file not found: {logs_path}", file=sys.stderr)
+        return 1
+
+    print(f"Loading logs from: {logs_path}")
+    logs: list[dict] = []
+    
+    # Try loading as JSON array first
+    content = logs_path.read_text(encoding="utf-8").strip()
+    if content.startswith("["):
+        try:
+            parsed = json.loads(content)
+            if isinstance(parsed, list):
+                logs = [e for e in parsed if isinstance(e, dict)]
+                print(f"  (Detected JSON array format)")
+        except json.JSONDecodeError:
+            pass
+    
+    # Fall back to JSONL
+    if not logs:
+        with open(logs_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    try:
+                        logs.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        pass
+
+    print(f"Loaded {len(logs)} log entries")
+    
+    if not logs:
+        print("No valid log entries found.", file=sys.stderr)
+        return 1
+    
+    # Step 1: Discover correlations
+    print()
+    print("Step 1: Discovering correlations...")
+    chains = discover_correlations(logs)
+    
+    # Filter chains by minimum components
+    multi_component_chains = [c for c in chains if c.component_count >= min_components]
+    
+    print(f"  Found {len(chains)} total chains")
+    print(f"  {len(multi_component_chains)} chains span {min_components}+ components")
+    
+    if debug:
+        print()
+        print(summarize_chains(chains))
+    
+    if not multi_component_chains:
+        print()
+        print("No multi-component chains found.")
+        print("Try --min-components 1 to see single-component groups.")
+        
+        # Write summary anyway
+        summary_path = out_dir / "trace_summary.txt"
+        summary_path.write_text(summarize_chains(chains), encoding="utf-8")
+        print(f"Summary written to: {summary_path}")
+        return 0
+    
+    # Step 2: Convert chains to spans and generate diagrams
+    print()
+    print("Step 2: Generating diagrams...")
+    
+    gallery_data: list[dict] = []
+    
+    for i, chain in enumerate(multi_component_chains, 1):
+        chain_id = f"chain-{i:03d}"
+        chain_dir = out_dir / chain_id
+        chain_dir.mkdir(exist_ok=True)
+        
+        # Convert to spans
+        spans = chain_to_spans(chain, chain_id)
+        trace = Trace(spans=spans)
+        
+        # Generate timeline HTML
+        try:
+            timeline_html = render_trace_viewer(trace, title=f"Trace: {chain_id}")
+            timeline_path = chain_dir / "timeline.html"
+            timeline_path.write_text(timeline_html, encoding="utf-8")
+        except Exception as e:
+            if debug:
+                print(f"  Warning: Could not generate timeline for {chain_id}: {e}")
+        
+        # Generate mini timeline for gallery
+        try:
+            mini_html = render_mini_timeline(trace)
+            (chain_dir / "mini_timeline.html").write_text(mini_html, encoding="utf-8")
+        except Exception:
+            pass
+        
+        # Write spans.jsonl
+        spans_path = chain_dir / "spans.jsonl"
+        with open(spans_path, "w", encoding="utf-8") as f:
+            for span in spans:
+                f.write(json.dumps({
+                    "span_id": span.span_id,
+                    "parent_span_id": span.parent_span_id,
+                    "component": span.component,
+                    "operation": span.operation,
+                    "ts_start": span.ts_start,
+                    "thread_id": span.thread_id,
+                    "session_id": span.session_id,
+                }, default=str) + "\n")
+        
+        # Write chain metadata
+        meta = {
+            "chain_id": chain_id,
+            "components": chain.components,
+            "component_count": chain.component_count,
+            "entry_count": len(chain.entries),
+            "span_count": len(spans),
+            "bridge_values": {v: list(c) for v, c in chain.bridge_values.items()},
+        }
+        (chain_dir / "chain_meta.json").write_text(
+            json.dumps(meta, indent=2), encoding="utf-8"
+        )
+        
+        gallery_data.append({
+            "chain_id": chain_id,
+            "flow": " → ".join(chain.components),
+            "entries": len(chain.entries),
+            "spans": len(spans),
+            "bridge_count": len(chain.bridge_values),
+        })
+        
+        print(f"  ✓ {chain_id}: {' → '.join(chain.components)} ({len(spans)} spans)")
+    
+    # Step 3: Generate gallery index
+    print()
+    print("Step 3: Generating gallery...")
+    
+    gallery_html = _render_trace_gallery(gallery_data, out_dir)
+    gallery_path = out_dir / "index.html"
+    gallery_path.write_text(gallery_html, encoding="utf-8")
+    
+    # Write summary
+    summary_path = out_dir / "trace_summary.txt"
+    summary_path.write_text(summarize_chains(chains), encoding="utf-8")
+    
+    print()
+    print(f"Artifacts written to: {out_dir}")
+    print(f"  • {gallery_path.name} (gallery)")
+    print(f"  • {summary_path.name}")
+    print(f"  • {len(multi_component_chains)} chain directories")
+    print()
+    print(f"Open {gallery_path} in a browser to explore traces.")
+    
+    return 0
+
+
+def _render_trace_gallery(chains: list[dict], out_dir: Path) -> str:
+    """Render a gallery HTML page for browsing discovered traces."""
+    rows = []
+    for chain in chains:
+        chain_id = chain["chain_id"]
+        rows.append(f"""
+        <tr>
+            <td><a href="{chain_id}/timeline.html">{chain_id}</a></td>
+            <td>{chain["flow"]}</td>
+            <td>{chain["entries"]}</td>
+            <td>{chain["spans"]}</td>
+            <td>{chain["bridge_count"]}</td>
+        </tr>
+        """)
+    
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>ITK Trace Gallery</title>
+    <style>
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }}
+        h1 {{ color: #333; }}
+        table {{
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }}
+        th, td {{
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+        }}
+        th {{
+            background: #4a5568;
+            color: white;
+        }}
+        tr:hover {{ background: #f0f4f8; }}
+        a {{ color: #3182ce; text-decoration: none; }}
+        a:hover {{ text-decoration: underline; }}
+        .summary {{
+            background: white;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }}
+    </style>
+</head>
+<body>
+    <h1>🔍 ITK Trace Gallery</h1>
+    <div class="summary">
+        <strong>Discovered {len(chains)} correlation chains</strong> from log analysis.
+        <br>Click a chain ID to view its sequence diagram.
+    </div>
+    <table>
+        <thead>
+            <tr>
+                <th>Chain ID</th>
+                <th>Flow</th>
+                <th>Log Entries</th>
+                <th>Spans</th>
+                <th>Bridge Values</th>
+            </tr>
+        </thead>
+        <tbody>
+            {"".join(rows)}
+        </tbody>
+    </table>
+</body>
+</html>
+"""
 
 
 def main() -> None:
@@ -3506,10 +3817,38 @@ def main() -> None:
     )
     p_init.set_defaults(func=_cmd_init)
 
-    # discover-correlations - dynamic correlation discovery
+    # trace - unified e2e command (recommended)
+    p_trace = sub.add_parser(
+        "trace",
+        help="Discover correlations and generate diagrams (recommended e2e command)",
+    )
+    p_trace.add_argument(
+        "--logs",
+        required=True,
+        help="Path to log file (JSON array or JSONL)",
+    )
+    p_trace.add_argument(
+        "--out",
+        required=True,
+        help="Output directory for trace artifacts",
+    )
+    p_trace.add_argument(
+        "--min-components",
+        type=int,
+        default=2,
+        help="Minimum components for a chain to be included (default: 2)",
+    )
+    p_trace.add_argument(
+        "--debug",
+        action="store_true",
+        help="Show debug output during processing",
+    )
+    p_trace.set_defaults(func=_cmd_trace)
+
+    # discover-correlations - dynamic correlation discovery (lower-level)
     p_discover_corr = sub.add_parser(
         "discover-correlations",
-        help="Discover correlation chains from logs without uniform trace IDs",
+        help="Discover correlation chains from logs (low-level, use 'trace' instead)",
     )
     p_discover_corr.add_argument(
         "--logs",
@@ -3520,6 +3859,11 @@ def main() -> None:
         "--out",
         required=True,
         help="Output directory for correlation artifacts",
+    )
+    p_discover_corr.add_argument(
+        "--debug",
+        action="store_true",
+        help="Show debug output: first 5 entries, components detected, values extracted",
     )
     p_discover_corr.set_defaults(func=_cmd_discover_correlations)
 
