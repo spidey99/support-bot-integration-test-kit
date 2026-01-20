@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import ast
 import json
+import re
 import uuid
 from pathlib import Path
 from typing import Any
@@ -34,6 +36,66 @@ NESTED_PARENT_KEYS = ["data", "log", "record", "event", "span", "context", "deta
 
 # Maximum depth for parsing stringified JSON to prevent infinite recursion
 MAX_STRINGIFY_DEPTH = 5
+
+# Pattern to detect Python dict repr embedded in strings
+# Matches: "Some text {'key': 'value', ...}" or "Event_body is {'message': ...}"
+_PYTHON_DICT_PATTERN = re.compile(r"\{['\"][\w_]+['\"]\s*:\s*.+\}")
+
+
+def try_parse_python_dict_repr(value: str) -> dict[str, Any] | None:
+    """
+    Attempt to extract and parse a Python dict repr from a string.
+    
+    Handles cases like:
+    - "Event_body is {'message': 'text', 'ts': '1768927632.159269'}"
+    - "SlackMessage created: {'thread_id': '123.456', 'channel': 'C07...'}"
+    
+    Uses ast.literal_eval for safe parsing (only literals, no code execution).
+    
+    Args:
+        value: String that may contain embedded Python dict repr
+        
+    Returns:
+        Parsed dict if found and valid, None otherwise
+    """
+    if not isinstance(value, str):
+        return None
+    
+    # Find dict-like patterns in the string
+    match = _PYTHON_DICT_PATTERN.search(value)
+    if not match:
+        return None
+    
+    dict_str = match.group(0)
+    
+    try:
+        # ast.literal_eval safely parses Python literals (dicts, lists, strings, numbers, etc.)
+        parsed = ast.literal_eval(dict_str)
+        if isinstance(parsed, dict):
+            return parsed
+    except (ValueError, SyntaxError, RecursionError):
+        pass
+    
+    return None
+
+
+def extract_thread_id_from_message(message: str) -> str | None:
+    """
+    Extract thread_id or ts from a message containing Python dict repr.
+    
+    Handles:
+    - "Event_body is {'message': 'text', 'ts': '1768927632.159269', ...}"
+    - "SlackMessage created: {'thread_id': '1768927632.159269', ...}"
+    
+    Returns:
+        Extracted thread_id/ts if found, None otherwise
+    """
+    parsed = try_parse_python_dict_repr(message)
+    if not parsed:
+        return None
+    
+    # Check for thread_id or ts in the parsed dict
+    return parsed.get("thread_id") or parsed.get("ts")
 
 
 def try_parse_stringified_json(value: Any, depth: int = 0) -> Any:
@@ -175,6 +237,34 @@ def flatten_nested_log(obj: dict[str, Any], parse_stringified: bool = True) -> d
     return result
 
 
+def _extract_thread_id(obj: dict[str, Any]) -> str | None:
+    """
+    Extract thread_id from a log entry, checking multiple sources.
+    
+    Priority:
+    1. Direct field (thread_id, ts at root or nested)
+    2. Python dict repr embedded in message string
+    
+    Handles log formats like:
+    - {"thread_id": "1768927632.159269"}  (direct field)
+    - {"message": "Event_body is {'ts': '1768927632.159269', ...}"}  (embedded)
+    - {"message": "SlackMessage created: {'thread_id': '1768927632.159269', ...}"}
+    """
+    # First, try direct field extraction
+    direct = extract_field(obj, "thread_id")
+    if direct:
+        return direct
+    
+    # Second, try extracting from Python dict repr in message
+    message = obj.get("message")
+    if isinstance(message, str):
+        embedded = extract_thread_id_from_message(message)
+        if embedded:
+            return embedded
+    
+    return None
+
+
 def normalize_log_to_span(obj: dict[str, Any]) -> Span | None:
     """
     Normalize a realistic log entry into an ITK Span.
@@ -235,7 +325,7 @@ def normalize_log_to_span(obj: dict[str, Any]) -> Span | None:
         xray_trace_id=extract_field(obj, "xray_trace_id"),
         sqs_message_id=extract_field(obj, "sqs_message_id"),
         bedrock_session_id=extract_field(obj, "bedrock_session_id"),
-        thread_id=extract_field(obj, "thread_id"),
+        thread_id=_extract_thread_id(obj),
         session_id=extract_field(obj, "session_id"),
         request=extract_field(obj, "request"),
         response=extract_field(obj, "response"),

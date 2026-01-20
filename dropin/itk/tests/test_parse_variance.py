@@ -10,10 +10,12 @@ import pytest
 
 from itk.logs.parse import (
     extract_field,
+    extract_thread_id_from_message,
     flatten_nested_log,
     load_realistic_logs_as_spans,
     normalize_log_to_span,
     parse_cloudwatch_logs,
+    try_parse_python_dict_repr,
 )
 
 
@@ -417,3 +419,91 @@ class TestStringifiedJsonParsing:
             assert spans[1].component == "bedrock"
         finally:
             path.unlink()
+
+
+class TestPythonDictReprParsing:
+    """Test parsing Python dict repr from log messages (single-quoted dicts)."""
+
+    def test_parse_simple_dict(self) -> None:
+        """Parse simple Python dict repr."""
+        result = try_parse_python_dict_repr("{'key': 'value', 'number': 123}")
+        assert result == {"key": "value", "number": 123}
+
+    def test_parse_embedded_dict(self) -> None:
+        """Parse dict embedded in surrounding text."""
+        result = try_parse_python_dict_repr("Event_body is {'message': 'hello', 'ts': '123.456'}")
+        assert result == {"message": "hello", "ts": "123.456"}
+
+    def test_parse_slack_message_dict(self) -> None:
+        """Parse SlackMessage log format."""
+        msg = "SlackMessage class finished creation with: {'thread_id': '1768927632.159269', 'channel': 'C07GVLMH5EG'}"
+        result = try_parse_python_dict_repr(msg)
+        assert result["thread_id"] == "1768927632.159269"
+        assert result["channel"] == "C07GVLMH5EG"
+
+    def test_returns_none_for_no_dict(self) -> None:
+        """Return None when no dict found."""
+        assert try_parse_python_dict_repr("no dict here") is None
+        assert try_parse_python_dict_repr("") is None
+
+    def test_returns_none_for_invalid_syntax(self) -> None:
+        """Return None for invalid Python syntax."""
+        assert try_parse_python_dict_repr("{'incomplete': ") is None
+
+    def test_extract_thread_id_from_ts(self) -> None:
+        """Extract thread_id from ts field in embedded dict."""
+        msg = "Event_body is {'message': 'What is CaaS 2.0?', 'ts': '1768927632.159269', 'channel': 'C07'}"
+        result = extract_thread_id_from_message(msg)
+        assert result == "1768927632.159269"
+
+    def test_extract_thread_id_direct(self) -> None:
+        """Extract thread_id directly from embedded dict."""
+        msg = "SlackMessage created: {'thread_id': '1768927632.159269', 'user': 'U123'}"
+        result = extract_thread_id_from_message(msg)
+        assert result == "1768927632.159269"
+
+    def test_thread_id_preferred_over_ts(self) -> None:
+        """thread_id takes precedence over ts if both present."""
+        msg = "Data: {'ts': '111.111', 'thread_id': '222.222'}"
+        result = extract_thread_id_from_message(msg)
+        assert result == "222.222"
+
+    def test_normalize_log_extracts_embedded_thread_id(self) -> None:
+        """normalize_log_to_span extracts thread_id from Python dict in message."""
+        obj = {
+            "level": "INFO",
+            "logger_name": "data_classes.slack_data",
+            "message": "SlackMessage class finished creation with: {'thread_id': '1768927632.159269', 'channel': 'C07'}",
+            "timestamp": "2025-06-20T17:27:12.000Z",
+            "component": "lambda",
+        }
+        span = normalize_log_to_span(obj)
+        assert span is not None
+        assert span.thread_id == "1768927632.159269"
+
+    def test_normalize_log_direct_thread_id_preferred(self) -> None:
+        """Direct thread_id field takes precedence over embedded."""
+        obj = {
+            "component": "lambda",
+            "thread_id": "direct-123.456",
+            "message": "Data: {'thread_id': 'embedded-789.012'}",
+        }
+        span = normalize_log_to_span(obj)
+        assert span is not None
+        assert span.thread_id == "direct-123.456"
+
+    def test_real_support_bot_log_format(self) -> None:
+        """Test with actual support bot log format."""
+        obj = {
+            "appname": "support-bot-orchestrator",
+            "level": "INFO",
+            "logger_name": "main",
+            "message": "Event_body is {'message': 'What is CaaS 2.0?', 'ts': '1768927632.159269', 'user': 'U08PS4EAM6M', 'channel': 'C07GVLMH5EG'}",
+            "timestamp": "2025-06-20T17:27:12.268959",
+        }
+        # Add component so it becomes a valid span
+        obj["component"] = "lambda"
+        span = normalize_log_to_span(obj)
+        assert span is not None
+        assert span.thread_id == "1768927632.159269"
+
