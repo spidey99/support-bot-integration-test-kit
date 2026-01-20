@@ -714,6 +714,8 @@ class TestScannerCLI:
             ["python", "-m", "itk", "scan", "--help"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             cwd=str(tmp_path),
         )
         
@@ -733,10 +735,13 @@ class TestScannerCLI:
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
         )
         
         assert result.returncode != 0
-        assert "not found" in result.stderr.lower() or "error" in result.stderr.lower()
+        stderr = result.stderr or ""
+        assert "not found" in stderr.lower() or "error" in stderr.lower()
 
     def test_cli_scan_creates_artifacts(
         self, temp_repo: Path, lambda_handler_file: Path
@@ -754,6 +759,8 @@ class TestScannerCLI:
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
         )
         
         assert result.returncode == 0
