@@ -8,6 +8,16 @@
 # 5. Validates ITK can discover, view, and test against the logs
 # 6. Tears down infrastructure (always, even on failure)
 #
+# KNOWN LIMITATION (TODO):
+# Currently invokes a Lambda directly instead of a Bedrock Agent.
+# ITK is designed to trace agent flows:
+#   Agent Invoke → Action Group Lambda → CloudWatch Logs
+# This E2E test shortcuts to:
+#   Lambda Invoke → CloudWatch Logs
+# A proper E2E would create an ephemeral Bedrock Agent, but agent creation
+# takes several minutes which makes the test slow. For now, we validate
+# the Lambda→Logs→ITK flow, which covers most of the ITK codebase.
+#
 # Usage:
 #   .\scripts\prove_it_e2e.ps1 -Credentials @"
 #   export AWS_ACCESS_KEY_ID=AKIA...
@@ -299,7 +309,26 @@ for ($i = 1; $i -le 3; $i++) {
 
 Write-SubStep "Waiting 30 seconds for CloudWatch log propagation..."
 Start-Sleep -Seconds 30
-Write-Pass "Log propagation wait complete"
+
+# VALIDATE logs actually exist before claiming success
+Write-SubStep "Validating logs exist in CloudWatch..."
+$logStreams = aws logs describe-log-streams --log-group-name $logGroup --order-by LastEventTime --descending --limit 1 --region $Region 2>&1 | Out-String
+if ($logStreams -match '"logStreamName"') {
+    # Get actual log events
+    $streamName = ($logStreams | ConvertFrom-Json).logStreams[0].logStreamName
+    $logEvents = aws logs get-log-events --log-group-name $logGroup --log-stream-name $streamName --limit 10 --region $Region 2>&1 | Out-String
+    
+    if ($logEvents -match 'span_id') {
+        $eventCount = ([regex]::Matches($logEvents, 'span_id')).Count
+        Write-Pass "Validated: Found $eventCount span log entries in CloudWatch"
+    }
+    else {
+        Write-Fail "Logs exist but no span entries found - Lambda may not be emitting ITK spans"
+    }
+}
+else {
+    Write-Fail "No log streams found in $logGroup - Lambda invocations may have failed silently"
+}
 
 # ============================================================================
 # PHASE 4: FRESH DIRECTORY - DERPY AGENT FLOW
@@ -430,6 +459,23 @@ try {
     Write-SubStep "Running itk view --since 15m..."
     $viewOutput = itk view --since 15m --log-groups $logGroup --out artifacts/e2e-view 2>&1 | Out-String
     Write-Host $viewOutput
+    
+    # If 0 events, diagnose why
+    if ($viewOutput -match "Fetched 0 log events") {
+        Write-Fail "ITK view found 0 events - diagnosing..."
+        
+        # Check if logs exist via direct API (not Logs Insights)
+        $directCheck = aws logs get-log-events --log-group-name $logGroup --log-stream-name (aws logs describe-log-streams --log-group-name $logGroup --order-by LastEventTime --descending --limit 1 --query "logStreams[0].logStreamName" --output text --region $Region) --limit 5 --region $Region 2>&1 | Out-String
+        
+        if ($directCheck -match "span_id") {
+            Write-Host "  [!] Logs exist (verified via get-log-events) but Logs Insights can't find them" -ForegroundColor Yellow
+            Write-Host "  [!] This is a known CloudWatch Logs Insights indexing delay on new log groups" -ForegroundColor Yellow
+            Write-Host "  [!] BUG: ITK should fall back to get-log-events for new log groups" -ForegroundColor Red
+        }
+        else {
+            Write-Host "  [!] Logs genuinely don't exist - Lambda logging may have failed" -ForegroundColor Red
+        }
+    }
     
     if ($viewOutput -match "Parsed (\d+) spans") {
         $spanCount = $Matches[1]
