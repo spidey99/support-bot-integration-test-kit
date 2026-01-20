@@ -95,6 +95,7 @@ def group_spans_by_execution(spans: list[Span]) -> tuple[dict[str, list[Span]], 
         exec_id = (
             span.itk_trace_id or
             span.bedrock_session_id or
+            span.session_id or
             span.lambda_request_id or
             span.xray_trace_id
         )
