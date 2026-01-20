@@ -122,3 +122,5 @@ ITK uses these IDs to correlate events across log groups:
 | `bedrock_session_id` | Bedrock Agent | Agent orchestration |
 | `xray_trace_id` | X-Ray header | Distributed tracing |
 | `sqs_message_id` | SQS record | SQS event triggers |
+| `thread_id` | Slack thread | Slack conversation correlation |
+| `session_id` | sessionId / x-amz-bedrock-agent-session-id | Cross-component session correlation |
