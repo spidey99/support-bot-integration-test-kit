@@ -3191,6 +3191,17 @@ def _cmd_trace(args: argparse.Namespace) -> int:
             json.dumps(meta, indent=2), encoding="utf-8"
         )
         
+        # Write raw logs for this chain (fixture for replay)
+        fixture_path = chain_dir / "fixture.jsonl"
+        with open(fixture_path, "w", encoding="utf-8") as f:
+            for entry in chain.entries:
+                f.write(json.dumps(entry.raw, default=str) + "\n")
+        
+        # Generate test case YAML for replay/soak testing
+        case_yaml = _generate_case_yaml(chain, chain_id, chain_dir)
+        case_path = chain_dir / "case.yaml"
+        case_path.write_text(case_yaml, encoding="utf-8")
+        
         gallery_data.append({
             "chain_id": chain_id,
             "flow": " → ".join(chain.components),
@@ -3217,11 +3228,141 @@ def _cmd_trace(args: argparse.Namespace) -> int:
     print(f"Artifacts written to: {out_dir}")
     print(f"  • {gallery_path.name} (gallery)")
     print(f"  • {summary_path.name}")
-    print(f"  • {len(multi_component_chains)} chain directories")
+    print(f"  • {len(multi_component_chains)} chain directories (each with case.yaml + fixture.jsonl)")
     print()
     print(f"Open {gallery_path} in a browser to explore traces.")
+    print(f"Run cases with: itk run --case {out_dir / 'chain-001' / 'case.yaml'} --out results/")
     
     return 0
+
+
+def _generate_case_yaml(
+    chain: "CorrelationChain",
+    chain_id: str,
+    chain_dir: Path,
+) -> str:
+    """
+    Generate a test case YAML file from a discovered chain.
+    
+    The case includes:
+    - Reference to the fixture (raw logs for this chain)
+    - Detected entrypoint type based on first component
+    - Basic invariants based on observed patterns
+    """
+    from itk.correlation.dynamic_discovery import CorrelationChain
+    
+    components = chain.components
+    first_component = components[0] if components else "unknown"
+    
+    # Infer entrypoint type from first component
+    entrypoint_type_map = {
+        "sqs": "sqs_event",
+        "lambda": "lambda_invoke",
+        "bedrock": "bedrock_invoke_agent",
+        "api_gateway": "http",
+        "slack": "http",  # Slack usually comes via HTTP webhook
+    }
+    entrypoint_type = entrypoint_type_map.get(first_component, "lambda_invoke")
+    
+    # Extract any request payload from first entry
+    first_entry = chain.entries[0] if chain.entries else None
+    payload_sample = {}
+    if first_entry:
+        raw = first_entry.raw
+        # Look for request/body/payload fields
+        for field in ("request", "body", "payload", "event", "message"):
+            if field in raw and isinstance(raw[field], dict):
+                payload_sample = raw[field]
+                break
+    
+    # Build invariants based on observed components
+    invariants = [
+        {"name": "has_spans", "params": {"min_count": len(chain.entries)}},
+    ]
+    
+    if "bedrock" in components:
+        invariants.append({"name": "bedrock_response_present"})
+    if "slack" in components:
+        invariants.append({"name": "slack_message_sent"})
+    if chain.component_count >= 2:
+        invariants.append({
+            "name": "component_flow",
+            "params": {"expected_components": components},
+        })
+    
+    # Get primary bridge value for session tracking
+    primary_bridge = None
+    if chain.bridge_values:
+        sorted_bridges = sorted(
+            chain.bridge_values.items(),
+            key=lambda x: len(x[1]),
+            reverse=True,
+        )
+        if sorted_bridges:
+            primary_bridge = sorted_bridges[0][0]
+    
+    # Build YAML content (using string formatting to avoid yaml dependency issues)
+    lines = [
+        f"# Auto-generated test case from {chain_id}",
+        f"# Discovered: {len(chain.entries)} log entries across {chain.component_count} components",
+        f"# Flow: {' → '.join(components)}",
+        "",
+        f"id: {chain_id}",
+        f"name: Replay - {' → '.join(components)}",
+        f"fixture: fixture.jsonl",
+        "",
+        "entrypoint:",
+        f"  type: {entrypoint_type}",
+        "  target:",
+        '    mode: invoke_lambda  # REPLACE with actual target',
+        '    target_arn_or_url: "REPLACE_ME"',
+    ]
+    
+    if payload_sample:
+        lines.append("  payload:")
+        lines.append(f"    # Sample from first log entry (may need adjustment):")
+        for key, value in list(payload_sample.items())[:5]:
+            if isinstance(value, str):
+                lines.append(f'    {key}: "{value}"')
+            else:
+                lines.append(f"    {key}: {json.dumps(value)}")
+    
+    lines.extend([
+        "",
+        "expected:",
+        "  invariants:",
+    ])
+    
+    for inv in invariants:
+        lines.append(f"    - name: {inv['name']}")
+        if "params" in inv:
+            for pk, pv in inv["params"].items():
+                if isinstance(pv, list):
+                    lines.append(f"      {pk}:")
+                    for item in pv:
+                        lines.append(f"        - {item}")
+                else:
+                    lines.append(f"      {pk}: {pv}")
+    
+    lines.extend([
+        "",
+        "notes:",
+        f'  source: "auto-generated from itk trace"',
+        f'  original_chain_id: "{chain_id}"',
+        f"  component_count: {chain.component_count}",
+        f"  entry_count: {len(chain.entries)}",
+    ])
+    
+    if primary_bridge:
+        lines.append(f'  primary_correlation_id: "{primary_bridge}"')
+    
+    lines.extend([
+        "  missing_fields:",
+        '    - "actual Lambda/API target"',
+        '    - "live credentials"',
+    ])
+    
+    return "\n".join(lines) + "\n"
 
 
 def _render_trace_gallery(chains: list[dict], out_dir: Path) -> str:
