@@ -1,5 +1,7 @@
 # ITK Quick Start: Adding to Your Work Repo
 
+> **See also:** [08-agent-setup-guide.md](08-agent-setup-guide.md) - a step-by-step version designed for AI coding agents.
+
 ---
 
 ## TL;DR - Just Run These Commands
@@ -285,6 +287,39 @@ start artifacts/live-001/trace-viewer.html
 
 ---
 
+# Step 6.5: Discover Correlation Chains (Optional)
+
+If your logs don't have a single trace ID that spans all components (common with Slack-based bots), use correlation discovery:
+
+```bash
+# First, export logs to JSONL (or use logs from itk view)
+itk discover-correlations --logs artifacts/live-001/logs.jsonl --out artifacts/correlations/
+```
+
+### You should see:
+
+```
+Discovered 1 correlation chain(s):
+
+Chain 1: lambda → slack → bedrock
+  Entries: 6
+  Components: 3
+  Bridge values:
+    1768927632.159269... → slack, bedrock, lambda
+```
+
+This finds log entries that belong together by:
+- **Slack timestamps** (`ts`, `thread_id`) used as `session_id` in Bedrock
+- **Channel IDs** (`C07GVLMH5EG`) shared across components
+- **UUIDs** (request IDs, message IDs) linking services
+
+**Outputs:**
+- `correlation_chains.json` - Full chain data with bridge values
+- `components_detected.json` - What components were found
+- `correlation_summary.txt` - Human-readable summary
+
+---
+
 # Step 7 of 8: Set Up AI Instructions (Optional)
 
 This helps Copilot/Claude understand ITK:
@@ -347,8 +382,7 @@ Print this out or keep it open in another tab:
 | Run one test | `itk run --case cases/X.yaml --out artifacts/Y/` |
 | Run all tests | `itk suite --cases-dir cases/ --out artifacts/suite/` |
 | Stress test | `itk soak --case cases/X.yaml --out artifacts/soak/ --iterations 50` |
-| Find logging gaps | `itk audit --case cases/X.yaml --out artifacts/audit/` |
-
+| Find logging gaps | `itk audit --case cases/X.yaml --out artifacts/audit/` || **Find correlation chains** | `itk discover-correlations --logs file.jsonl --out artifacts/corr/` |
 ## Status Meanings
 
 | You see | It means | Do this |

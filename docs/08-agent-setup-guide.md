@@ -1,6 +1,8 @@
 # Agent Setup Guide
 
 > **Purpose:** Hand this document to any coding agent (Copilot, Claude, etc.) to set up ITK in a new project. Works for both fresh clones and existing repos.
+>
+> **See also:** [QUICKSTART_TIER3.md](QUICKSTART_TIER3.md) for a human-friendly version with TL;DR commands.
 
 You are setting up the Integration Test Kit (ITK) to visualize and test Bedrock Agent executions. Follow these steps exactly in order. Run each command and wait for it to complete before moving to the next step.
 
@@ -207,6 +209,28 @@ Open `artifacts/history/index.html` in your browser.
 
 - [ ] Check: Gallery shows past executions with timestamps
 - [ ] Check: Clicking "View" opens a sequence diagram
+
+---
+
+## Phase 3.5: Discover Correlations (For Logs Without Trace IDs)
+
+If your logs don't have a uniform trace ID but contain related values (thread_id, session_id, channel IDs, etc.), use correlation discovery to find chains:
+
+```powershell
+# Export logs from view command or use existing JSONL
+itk discover-correlations --logs artifacts/history/logs.jsonl --out artifacts/correlations
+```
+
+This will:
+1. Auto-detect components (lambda, slack, bedrock, sqs, etc.)
+2. Extract correlation values (Slack timestamps, UUIDs, channel IDs)
+3. Build transitive chains across components
+4. Identify "bridge values" that link different components
+
+Open `artifacts/correlations/correlation_summary.txt` to see discovered chains.
+
+- [ ] Check: Command shows "Discovered N correlation chain(s)"
+- [ ] Check: `correlation_chains.json` lists entries grouped by shared values
 
 ---
 
