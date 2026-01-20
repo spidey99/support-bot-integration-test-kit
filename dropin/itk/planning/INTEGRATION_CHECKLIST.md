@@ -1,6 +1,9 @@
-# TODO (Tier 3 — Work Repo Agent)
+# ITK Integration Checklist (Tier 3 — Work Repo)
 
-> **REMEMBER**: All test execution is LIVE. Never use mocks. Never use dev-fixtures mode for real tests.
+> **Context**: This checklist guides work repo agents through ITK integration.
+> All test execution is LIVE. Never use mocks. Never use dev-fixtures mode for real tests.
+> 
+> **Pre-requisite**: Complete [Agent Setup Guide](../../../docs/08-agent-setup-guide.md) first.
 
 ---
 

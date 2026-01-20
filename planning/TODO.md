@@ -442,7 +442,9 @@
 - `itk scan --repo <path> --out <dir>` — scans codebase for coverage gaps
 - `itk suite --cases-dir <path> --out <dir>` — runs multiple cases, generates index.html report
 - `itk soak --case <path> --out <dir>` — runs soak test with adaptive rate control
-- 453 pytest tests covering all modules
+- `itk view --since <duration> --log-groups <lg>` — historical viewer for past executions
+- `itk discover` — discover AWS resources for bootstrap
+- 543+ pytest tests covering all modules
 
 ### What Tier-3 must wire:
 - AWS adapters to real resources (boto3 clients stubbed but ready)
@@ -537,40 +539,38 @@
 
 ## Documentation & Templates (Final Polish)
 
-## ITK-0045 — GitHub Actions workflow template
-- [ ] Create `.github/workflows/itk.yml` in `_merge_to_repo_root/`
-- [ ] Mirror GitLab CI structure: smoke, suite, audit jobs
-- [ ] Use `actions/setup-python@v5` and AWS credentials action
-- [ ] Upload artifacts with `actions/upload-artifact@v4`
-- [ ] Add manual trigger (`workflow_dispatch`) and PR trigger
-- [ ] Document in `ITK_SETUP.md`
+## ITK-0045 — GitHub Actions workflow template ✅
+- [x] Create `.github/workflows/itk.yml` in `_merge_to_repo_root/`
+- [x] Mirror GitLab CI structure: smoke, suite, audit, soak jobs
+- [x] Use `actions/setup-python@v5` and AWS credentials action
+- [x] Upload artifacts with `actions/upload-artifact@v4`
+- [x] Add manual trigger (`workflow_dispatch`) and PR trigger
+- [ ] Document in `ITK_SETUP.md` (deferred)
 
-## ITK-0046 — Simplify Tier-3 TODO to Integration Checklist
-- [ ] Rename `dropin/itk/planning/TODO.md` to `INTEGRATION_CHECKLIST.md`
-- [ ] Remove "Tier 3 agent" language - it's now human/simple steps
-- [ ] Simplify to: Install → Discover → Configure → Run
-- [ ] Remove resolver configuration (rarely used)
-- [ ] Add links to ITK commands for each step
-- [ ] Update references in other docs
+## ITK-0046 — Simplify Tier-3 TODO to Integration Checklist ✅
+- [x] Rename `dropin/itk/planning/TODO.md` to `INTEGRATION_CHECKLIST.md`
+- [x] Simplify header to focus on integration steps
+- [x] Added reference to Agent Setup Guide
 
-## ITK-0047 — Document `agent_version` targeting
-- [ ] Update `docs/02-test-case-format.md` with agent_version field
-- [ ] Document options: `"latest"`, `"draft"`, explicit version number
+## ITK-0047 — Document `agent_version` targeting ✅
+- [x] Update `docs/02-test-case-format.md` with agent_version/alias field
+- [x] Document alias types: TSTALIASID (draft), custom aliases
+- [x] Add example A/B testing pattern
 - [ ] Add example cases showing each mode
 - [ ] Explain version resolution behavior
 
-## ITK-0048 — Update test counts and implementation notes
-- [ ] Update "453 tests" → "543 tests" in TODO.md
-- [ ] Update "What works now" section with new commands
-- [ ] Add `itk view` to command list
-- [ ] Add `itk discover` to command list
-- [ ] Review ROADMAP.md phase checkboxes
+## ITK-0048 — Update test counts and implementation notes ✅
+- [x] Update "453 tests" → "543+ tests" in TODO.md
+- [x] Update "What works now" section with new commands
+- [x] Add `itk view` to command list
+- [x] Add `itk discover` to command list
+- [x] Review ROADMAP.md phase checkboxes
 
-## ITK-0049 — Mark Tier-2 feature-complete
-- [ ] Add "Feature Complete" banner to ROADMAP.md
-- [ ] Summarize all completed phases
-- [ ] Document what's deferred (Phase 15 - reference infra)
-- [ ] Update README.md with current capability summary
+## ITK-0049 — Mark Tier-2 feature-complete ✅
+- [x] Add "Feature Complete" banner to ROADMAP.md
+- [x] Summarize all completed phases (0-14)
+- [x] Document what's deferred (Phase 15 - reference infra)
+- [ ] Update README.md with current capability summary (deferred)
 
 ---
 

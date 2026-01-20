@@ -1,0 +1,269 @@
+# ITK GitHub Actions Integration
+#
+# Copy this file to your work repo's .github/workflows/ directory.
+# Runs integration tests against the deployed branch environment.
+#
+# Required secrets (set in repo Settings → Secrets):
+#   AWS_ACCESS_KEY_ID
+#   AWS_SECRET_ACCESS_KEY
+#   AWS_SESSION_TOKEN (optional, for temporary creds)
+#   AWS_REGION (optional, defaults to us-east-1)
+#
+# Required variables (set in repo Settings → Variables):
+#   ITK_LOG_GROUPS - comma-separated CloudWatch log groups
+#   ITK_BEDROCK_AGENT_ID - Bedrock agent ID (optional)
+
+name: ITK Integration Tests
+
+on:
+  # Run on PRs
+  pull_request:
+    branches: [main, develop]
+  # Run on push to main
+  push:
+    branches: [main]
+  # Manual trigger
+  workflow_dispatch:
+    inputs:
+      test_type:
+        description: 'Test type to run'
+        required: true
+        default: 'smoke'
+        type: choice
+        options:
+          - smoke
+          - suite
+          - audit
+          - soak
+      soak_iterations:
+        description: 'Soak test iterations (only for soak type)'
+        required: false
+        default: '20'
+  # Scheduled soak tests (optional)
+  schedule:
+    - cron: '0 6 * * 1'  # Weekly Monday 6am UTC
+
+env:
+  PYTHON_VERSION: '3.12'
+  ITK_MODE: 'live'
+  AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+
+jobs:
+  # -------------------------------------------------
+  # Smoke Test - Quick validation
+  # -------------------------------------------------
+  smoke:
+    name: ITK Smoke Test
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'pull_request' ||
+      github.event_name == 'push' ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.test_type == 'smoke')
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: dropin/itk/pyproject.toml
+
+      - name: Install ITK
+        run: |
+          cd dropin/itk
+          pip install -e ".[dev]"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set ITK environment
+        run: |
+          echo "ITK_LOG_GROUPS=${{ vars.ITK_LOG_GROUPS }}" >> $GITHUB_ENV
+          echo "ITK_BEDROCK_AGENT_ID=${{ vars.ITK_BEDROCK_AGENT_ID }}" >> $GITHUB_ENV
+          echo "ITK_AWS_REGION=${{ env.AWS_REGION }}" >> $GITHUB_ENV
+
+      - name: Run smoke test
+        run: |
+          cd dropin/itk
+          itk run --mode live --case cases/example-001.yaml --out ../../itk-artifacts/smoke/
+        continue-on-error: true
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: itk-smoke-${{ github.run_number }}
+          path: itk-artifacts/smoke/
+          retention-days: 7
+
+  # -------------------------------------------------
+  # Full Suite - Comprehensive test run
+  # -------------------------------------------------
+  suite:
+    name: ITK Full Suite
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'push' && github.ref == 'refs/heads/main' ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.test_type == 'suite')
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: dropin/itk/pyproject.toml
+
+      - name: Install ITK
+        run: |
+          cd dropin/itk
+          pip install -e ".[dev]"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set ITK environment
+        run: |
+          echo "ITK_LOG_GROUPS=${{ vars.ITK_LOG_GROUPS }}" >> $GITHUB_ENV
+          echo "ITK_BEDROCK_AGENT_ID=${{ vars.ITK_BEDROCK_AGENT_ID }}" >> $GITHUB_ENV
+
+      - name: Run full suite
+        run: |
+          cd dropin/itk
+          itk suite --cases-dir cases/ --out ../../itk-artifacts/suite/
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: itk-suite-${{ github.run_number }}
+          path: itk-artifacts/suite/
+          retention-days: 14
+
+  # -------------------------------------------------
+  # Audit - Logging gap analysis
+  # -------------------------------------------------
+  audit:
+    name: ITK Logging Audit
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.test_type == 'audit')
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: dropin/itk/pyproject.toml
+
+      - name: Install ITK
+        run: |
+          cd dropin/itk
+          pip install -e ".[dev]"
+
+      - name: Run audit (dev-fixtures mode)
+        run: |
+          cd dropin/itk
+          itk audit --mode dev-fixtures --case cases/example-001.yaml --out ../../itk-artifacts/audit/
+
+      - name: Upload logging gaps report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: itk-audit-${{ github.run_number }}
+          path: itk-artifacts/audit/
+          retention-days: 30
+
+      - name: Comment on PR with gaps
+        if: github.event_name == 'pull_request' && always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const gapsFile = 'itk-artifacts/audit/logging-gaps.md';
+            if (fs.existsSync(gapsFile)) {
+              const content = fs.readFileSync(gapsFile, 'utf8');
+              const lines = content.split('\n').slice(0, 50);  // First 50 lines
+              const preview = lines.join('\n');
+              github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: `## ITK Logging Gap Analysis\n\n<details>\n<summary>Click to expand</summary>\n\n\`\`\`markdown\n${preview}\n\`\`\`\n\n</details>\n\nSee full report in artifacts.`
+              });
+            }
+
+  # -------------------------------------------------
+  # Soak Test - Long-running stability test
+  # -------------------------------------------------
+  soak:
+    name: ITK Soak Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    if: >
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.test_type == 'soak')
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: dropin/itk/pyproject.toml
+
+      - name: Install ITK
+        run: |
+          cd dropin/itk
+          pip install -e ".[dev]"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set ITK environment
+        run: |
+          echo "ITK_LOG_GROUPS=${{ vars.ITK_LOG_GROUPS }}" >> $GITHUB_ENV
+          echo "ITK_BEDROCK_AGENT_ID=${{ vars.ITK_BEDROCK_AGENT_ID }}" >> $GITHUB_ENV
+
+      - name: Run soak test
+        run: |
+          cd dropin/itk
+          ITERATIONS=${{ github.event.inputs.soak_iterations || '20' }}
+          itk soak --case cases/example-001.yaml --iterations $ITERATIONS --out ../../itk-artifacts/soak/ --detailed
+
+      - name: Upload soak report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: itk-soak-${{ github.run_number }}
+          path: itk-artifacts/soak/
+          retention-days: 30

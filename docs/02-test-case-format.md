@@ -69,3 +69,62 @@ expected:
   invariants:
     - name: has_spans
 ```
+
+## Agent Version Targeting
+
+Bedrock Agents support versioned aliases, allowing you to test against specific agent versions:
+
+```yaml
+entrypoint:
+  type: bedrock_invoke_agent
+  target:
+    agent_id: XXXXXXXXXX
+    agent_alias_id: TSTALIASID  # Test alias (draft version)
+```
+
+### Alias Types
+
+| Alias | Purpose |
+|-------|---------|
+| `TSTALIASID` | Built-in test alias - always points to DRAFT version |
+| Custom alias | User-created, points to specific prepared version |
+
+### Testing Version Upgrades
+
+To test a new agent version before promoting to production:
+
+1. **Prepare** the new agent version in Bedrock console
+2. **Create test alias** pointing to new version
+3. **Update test case** to use new alias:
+   ```yaml
+   target:
+     agent_alias_id: "NEW_VERSION_ALIAS"
+   ```
+4. **Run ITK suite** against new version
+5. **Compare** results with baseline (`itk compare`)
+6. **Promote** alias to production if tests pass
+
+### A/B Testing Pattern
+
+Run the same test against multiple versions to compare behavior:
+
+```yaml
+# cases/v1-greeting.yaml
+id: greeting-v1
+entrypoint:
+  target:
+    agent_alias_id: PROD_ALIAS_V1
+
+# cases/v2-greeting.yaml  
+id: greeting-v2
+entrypoint:
+  target:
+    agent_alias_id: CANDIDATE_ALIAS_V2
+```
+
+Then compare outputs:
+```bash
+itk run --case cases/v1-greeting.yaml --out artifacts/v1/
+itk run --case cases/v2-greeting.yaml --out artifacts/v2/
+itk compare artifacts/v1/ artifacts/v2/ --out artifacts/comparison/
+```
