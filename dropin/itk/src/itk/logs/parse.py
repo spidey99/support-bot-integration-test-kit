@@ -284,17 +284,37 @@ def normalize_log_to_span(obj: dict[str, Any]) -> Span | None:
     component = extract_field(obj, "component")
     operation = extract_field(obj, "operation")
     
-    # If no component, try to infer from message
+    # If no component, try to infer from appname, logger_name, or message
     if not component:
-        message = obj.get("message", "")
-        # Message could be a string or parsed dict; only infer from strings
-        if isinstance(message, str):
-            if "lambda" in message.lower() or "handler" in message.lower():
-                component = "lambda"
-            elif "bedrock" in message.lower() or "model" in message.lower():
-                component = "bedrock"
-            elif "sqs" in message.lower() or "queue" in message.lower():
-                component = "sqs"
+        # Check appname first (support bot pattern)
+        appname = obj.get("appname", "")
+        if isinstance(appname, str) and "orchestrator" in appname.lower():
+            component = "lambda"  # orchestrator = Lambda function
+        
+        # Check logger_name for hints
+        if not component:
+            logger = obj.get("logger_name", "")
+            if isinstance(logger, str):
+                if "slack" in logger.lower():
+                    component = "slack"
+                elif "bedrock" in logger.lower():
+                    component = "bedrock"
+        
+        # Check message content
+        if not component:
+            message = obj.get("message", "")
+            # Message could be a string or parsed dict; only infer from strings
+            if isinstance(message, str):
+                if "lambda" in message.lower() or "handler" in message.lower():
+                    component = "lambda"
+                elif "bedrock" in message.lower() or "model" in message.lower() or "agent" in message.lower():
+                    component = "bedrock"
+                elif "sqs" in message.lower() or "queue" in message.lower():
+                    component = "sqs"
+                elif "slack" in message.lower() or "thread_id" in message.lower():
+                    component = "slack"
+                elif "event_body" in message.lower():
+                    component = "lambda"  # Event_body typically means Lambda event
     
     # Must have at least component or operation to be a span
     if not component and not operation:
@@ -420,7 +440,8 @@ def parse_cloudwatch_logs(log_events: list[dict[str, Any]]) -> list[Span]:
     Parse CloudWatch log events into Spans.
     
     CloudWatch events have structure: {timestamp, message, ...}
-    The message field contains our JSON log entry.
+    The message field contains our JSON log entry, OR may contain
+    a Python dict repr (single quotes) or plain text with embedded dicts.
     """
     spans: list[Span] = []
     stats = {"total": 0, "runtime_msgs": 0, "json_errors": 0, "no_span": 0, "spans": 0}
@@ -434,12 +455,39 @@ def parse_cloudwatch_logs(log_events: list[dict[str, Any]]) -> list[Span]:
             stats["runtime_msgs"] += 1
             continue
         
+        obj: dict[str, Any] | None = None
+        
+        # Try 1: Parse as JSON
         try:
             obj = json.loads(message)
         except json.JSONDecodeError:
-            # Not a JSON log, skip
-            stats["json_errors"] += 1
-            continue
+            pass
+        
+        # Try 2: Parse as Python dict repr (single quotes)
+        if obj is None:
+            parsed_dict = try_parse_python_dict_repr(message)
+            if parsed_dict:
+                # Merge with inferred component from message text
+                inferred_component = _infer_component_from_text(message)
+                obj = {
+                    **parsed_dict,
+                    "message": message,  # Keep original for reference
+                    "timestamp": event.get("timestamp"),
+                }
+                if inferred_component and "component" not in obj:
+                    obj["component"] = inferred_component
+        
+        # Try 3: Build a synthetic log entry from the raw message
+        # This handles logs like "Event_body is {'ts': '123', ...}"
+        if obj is None:
+            # Create a minimal log entry with the raw message
+            # The _extract_thread_id and normalize functions will try to parse embedded dicts
+            obj = {
+                "message": message,
+                "timestamp": event.get("timestamp"),
+                # Try to infer component from message keywords
+                "component": _infer_component_from_text(message),
+            }
         
         span = normalize_log_to_span(obj)
         if span:
@@ -453,11 +501,28 @@ def parse_cloudwatch_logs(log_events: list[dict[str, Any]]) -> list[Span]:
         import sys
         print(f"Warning: 0 spans from {stats['total']} CloudWatch events", file=sys.stderr)
         print(f"  Runtime messages: {stats['runtime_msgs']}", file=sys.stderr)
-        print(f"  Non-JSON: {stats['json_errors']}", file=sys.stderr)
-        print(f"  JSON but not span-like: {stats['no_span']}", file=sys.stderr)
+        print(f"  Non-JSON/non-dict: {stats['json_errors']}", file=sys.stderr)
+        print(f"  Parsed but not span-like: {stats['no_span']}", file=sys.stderr)
         if stats["no_span"] > 0:
             print(f"  Hint: Your logs may need 'component' or 'operation' fields", file=sys.stderr)
             print(f"  Supported field names: {list(FIELD_MAPPINGS.get('component', []))}", file=sys.stderr)
     
     return spans
+
+
+def _infer_component_from_text(text: str) -> str | None:
+    """Infer component from text keywords."""
+    text_lower = text.lower()
+    if "lambda" in text_lower or "handler" in text_lower:
+        return "lambda"
+    if "bedrock" in text_lower or "agent" in text_lower:
+        return "bedrock"
+    if "sqs" in text_lower or "queue" in text_lower:
+        return "sqs"
+    if "slack" in text_lower or "thread_id" in text_lower or "slackmessage" in text_lower:
+        return "slack"
+    # Event_body typically means Lambda processing an event
+    if "event_body" in text_lower or "event body" in text_lower:
+        return "lambda"
+    return None
 

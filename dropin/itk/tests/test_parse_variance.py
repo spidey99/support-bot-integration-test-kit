@@ -507,3 +507,48 @@ class TestPythonDictReprParsing:
         assert span is not None
         assert span.thread_id == "1768927632.159269"
 
+    def test_cloudwatch_with_python_dict_repr_message(self) -> None:
+        """Parse CloudWatch events where message is Python dict repr (single quotes)."""
+        events = [
+            {
+                "timestamp": 1705622400000,
+                "message": "{'component': 'lambda', 'operation': 'invoke', 'thread_id': '1768927632.159269'}",
+            },
+        ]
+        spans = parse_cloudwatch_logs(events)
+        assert len(spans) == 1
+        assert spans[0].component == "lambda"
+        assert spans[0].operation == "invoke"
+        assert spans[0].thread_id == "1768927632.159269"
+
+    def test_cloudwatch_with_embedded_dict_in_text(self) -> None:
+        """Parse CloudWatch events with embedded Python dict in plain text."""
+        events = [
+            {
+                "timestamp": 1705622400000,
+                "message": "Event_body is {'message': 'Hello', 'ts': '1768927632.159269', 'channel': 'C07GVLMH5EG'}",
+            },
+        ]
+        spans = parse_cloudwatch_logs(events)
+        # Should create a span with thread_id extracted from embedded dict
+        assert len(spans) == 1
+        assert spans[0].thread_id == "1768927632.159269"
+
+    def test_cloudwatch_support_bot_full_flow(self) -> None:
+        """Parse CloudWatch events matching support bot log format."""
+        events = [
+            {
+                "timestamp": 1705622400000,
+                "message": '{"appname": "support-bot-orchestrator", "level": "INFO", "logger_name": "main", "message": "Event_body is {\'ts\': \'1768927632.159269\'}", "timestamp": "2025-06-20T17:27:12Z"}',
+            },
+            {
+                "timestamp": 1705622401000,
+                "message": '{"appname": "support-bot-orchestrator", "level": "INFO", "logger_name": "data_classes.slack_data", "message": "SlackMessage class finished creation with: {\'thread_id\': \'1768927632.159269\'}", "timestamp": "2025-06-20T17:27:13Z"}',
+            },
+        ]
+        spans = parse_cloudwatch_logs(events)
+        # Both should have thread_id extracted
+        assert len(spans) >= 1
+        thread_ids = [s.thread_id for s in spans if s.thread_id]
+        assert "1768927632.159269" in thread_ids
+
