@@ -279,9 +279,10 @@ class TestStringifiedJsonParsing:
         """Parse double-stringified JSON (escaped quotes)."""
         from itk.logs.parse import try_parse_stringified_json
 
-        # This represents JSON that was stringified twice
+        # Double-stringify: first json.dumps produces '{"component": "lambda"}'
+        # second json.dumps wraps it in quotes producing '"{\"component\": \"lambda\"}"'
         inner = json.dumps({"component": "lambda"})
-        value = json.dumps(inner)  # Now it's a quoted string
+        value = json.dumps(inner)
         parsed = try_parse_stringified_json(value)
         assert isinstance(parsed, dict)
         assert parsed["component"] == "lambda"
@@ -338,14 +339,15 @@ class TestStringifiedJsonParsing:
 
     def test_normalize_log_with_double_stringified(self) -> None:
         """Normalize log with double-stringified JSON."""
+        # First stringify: dict -> JSON string
         inner = json.dumps({"component": "sqs", "operation": "sendMessage"})
         log = {
             "level": "INFO",
-            "data": inner,  # Already a JSON string
+            "data": inner,  # data is now a JSON string like '{"component": "sqs", ...}'
             "timestamp": "2025-01-19T00:00:00Z",
         }
-        # Since data is already a JSON string, it should be parsed
-        log["data"] = json.dumps(log["data"])  # Double-stringify
+        # Second stringify: wrap JSON string in quotes, adding escape sequences
+        log["data"] = json.dumps(log["data"])
         span = normalize_log_to_span(log)
         assert span is not None
         assert span.component == "sqs"

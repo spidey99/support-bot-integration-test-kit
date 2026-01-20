@@ -45,11 +45,11 @@ def try_parse_stringified_json(value: Any, depth: int = 0) -> Any:
     - '"{\"component\": \"lambda\"}"' -> {"component": "lambda"}
     
     Args:
-        value: The value to attempt parsing (only strings are parsed)
-        depth: Current recursion depth to prevent infinite loops
+        value: The value to attempt parsing (only strings are parsed).
+        depth: Current recursion depth to prevent infinite loops.
         
     Returns:
-        Parsed object if value was valid JSON, otherwise original value
+        Parsed object if value was valid JSON, otherwise original value.
     """
     if depth > MAX_STRINGIFY_DEPTH:
         return value
@@ -106,15 +106,23 @@ def parse_stringified_json_in_dict(obj: dict[str, Any], depth: int = 0) -> dict[
         elif isinstance(value, dict):
             result[key] = parse_stringified_json_in_dict(value, depth + 1)
         elif isinstance(value, list):
-            result[key] = [
-                try_parse_stringified_json(item, depth + 1) if isinstance(item, str)
-                else parse_stringified_json_in_dict(item, depth + 1) if isinstance(item, dict)
-                else item
-                for item in value
-            ]
+            result[key] = _parse_list_items(value, depth + 1)
         else:
             result[key] = value
     return result
+
+
+def _parse_list_items(items: list[Any], depth: int) -> list[Any]:
+    """Parse stringified JSON in list items."""
+    parsed: list[Any] = []
+    for item in items:
+        if isinstance(item, str):
+            parsed.append(try_parse_stringified_json(item, depth))
+        elif isinstance(item, dict):
+            parsed.append(parse_stringified_json_in_dict(item, depth))
+        else:
+            parsed.append(item)
+    return parsed
 
 
 def extract_field(obj: dict[str, Any], canonical_name: str, default: Any = None) -> Any:
