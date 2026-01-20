@@ -260,3 +260,158 @@ class TestParseCloudWatchLogs:
 
         spans = parse_cloudwatch_logs(events)
         assert len(spans) == 1
+
+
+class TestStringifiedJsonParsing:
+    """Test handling of stringified JSON within log fields."""
+
+    def test_parse_stringified_json_in_message(self) -> None:
+        """Parse stringified JSON inside a message field."""
+        from itk.logs.parse import try_parse_stringified_json
+
+        value = '{"component": "lambda", "operation": "invoke"}'
+        parsed = try_parse_stringified_json(value)
+        assert isinstance(parsed, dict)
+        assert parsed["component"] == "lambda"
+        assert parsed["operation"] == "invoke"
+
+    def test_parse_double_stringified_json(self) -> None:
+        """Parse double-stringified JSON (escaped quotes)."""
+        from itk.logs.parse import try_parse_stringified_json
+
+        # This represents JSON that was stringified twice
+        inner = json.dumps({"component": "lambda"})
+        value = json.dumps(inner)  # Now it's a quoted string
+        parsed = try_parse_stringified_json(value)
+        assert isinstance(parsed, dict)
+        assert parsed["component"] == "lambda"
+
+    def test_parse_triple_stringified_json(self) -> None:
+        """Parse triple-stringified JSON (deeply escaped)."""
+        from itk.logs.parse import try_parse_stringified_json
+
+        inner = {"component": "lambda", "operation": "invoke"}
+        value = json.dumps(json.dumps(json.dumps(inner)))
+        parsed = try_parse_stringified_json(value)
+        assert isinstance(parsed, dict)
+        assert parsed["component"] == "lambda"
+
+    def test_parse_stringified_json_in_dict(self) -> None:
+        """Parse stringified JSON within dict values."""
+        from itk.logs.parse import parse_stringified_json_in_dict
+
+        obj = {
+            "level": "INFO",
+            "message": '{"component": "lambda", "operation": "start"}',
+            "normal_field": "just a string",
+        }
+        parsed = parse_stringified_json_in_dict(obj)
+        assert parsed["level"] == "INFO"
+        assert parsed["normal_field"] == "just a string"
+        assert isinstance(parsed["message"], dict)
+        assert parsed["message"]["component"] == "lambda"
+
+    def test_normalize_log_with_stringified_data(self) -> None:
+        """Normalize log with stringified JSON in data field."""
+        log = {
+            "level": "INFO",
+            "data": '{"component": "lambda", "operation": "invoke", "requestId": "req-123"}',
+            "timestamp": "2025-01-19T00:00:00Z",
+        }
+        span = normalize_log_to_span(log)
+        assert span is not None
+        assert span.component == "lambda"
+        assert span.operation == "invoke"
+        assert span.lambda_request_id == "req-123"
+
+    def test_normalize_log_with_stringified_message(self) -> None:
+        """Normalize log where message field contains stringified JSON."""
+        log = {
+            "level": "INFO",
+            "message": '{"component": "bedrock", "operation": "model_invoke", "traceId": "trace-456"}',
+        }
+        span = normalize_log_to_span(log)
+        assert span is not None
+        assert span.component == "bedrock"
+        assert span.operation == "model_invoke"
+        assert span.itk_trace_id == "trace-456"
+
+    def test_normalize_log_with_double_stringified(self) -> None:
+        """Normalize log with double-stringified JSON."""
+        inner = json.dumps({"component": "sqs", "operation": "sendMessage"})
+        log = {
+            "level": "INFO",
+            "data": inner,  # Already a JSON string
+            "timestamp": "2025-01-19T00:00:00Z",
+        }
+        # Since data is already a JSON string, it should be parsed
+        log["data"] = json.dumps(log["data"])  # Double-stringify
+        span = normalize_log_to_span(log)
+        assert span is not None
+        assert span.component == "sqs"
+        assert span.operation == "sendMessage"
+
+    def test_flatten_nested_log_parses_stringified(self) -> None:
+        """Flatten log with stringified nested structure."""
+        log = {
+            "level": "INFO",
+            "data": '{"component": "lambda", "traceId": "trace-001"}',
+            "timestamp": "2025-01-19T00:00:00Z",
+        }
+        flat = flatten_nested_log(log)
+        assert flat["timestamp"] == "2025-01-19T00:00:00Z"
+        assert flat["component"] == "lambda"
+        assert flat["traceId"] == "trace-001"
+
+    def test_skip_non_json_strings(self) -> None:
+        """Leave non-JSON strings unchanged."""
+        from itk.logs.parse import try_parse_stringified_json
+
+        assert try_parse_stringified_json("just a plain string") == "just a plain string"
+        assert try_parse_stringified_json("not json: {missing quotes}") == "not json: {missing quotes}"
+        assert try_parse_stringified_json("") == ""
+        assert try_parse_stringified_json(123) == 123  # Non-string values
+
+    def test_nested_arrays_in_stringified(self) -> None:
+        """Parse stringified JSON containing arrays."""
+        from itk.logs.parse import try_parse_stringified_json
+
+        value = json.dumps({"items": [1, 2, {"nested": "value"}]})
+        parsed = try_parse_stringified_json(value)
+        assert isinstance(parsed, dict)
+        assert parsed["items"] == [1, 2, {"nested": "value"}]
+
+    def test_cloudwatch_with_stringified_inner_json(self) -> None:
+        """Parse CloudWatch events with stringified JSON in message."""
+        # Simulates CloudWatch putting JSON log as a string in message field
+        events = [
+            {
+                "timestamp": 1705622400000,
+                "message": '{"component": "lambda", "operation": "invoke", "data": "{\\"requestId\\": \\"req-nested\\"}"}',
+            },
+        ]
+        spans = parse_cloudwatch_logs(events)
+        assert len(spans) == 1
+        assert spans[0].component == "lambda"
+        assert spans[0].operation == "invoke"
+
+    def test_load_realistic_logs_with_stringified(self) -> None:
+        """Load JSONL logs containing stringified JSON."""
+        logs = [
+            {"level": "INFO", "message": '{"component": "lambda", "operation": "start"}'},
+            {"level": "INFO", "data": '{"component": "bedrock", "op": "invoke"}'},
+        ]
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
+            for log in logs:
+                f.write(json.dumps(log) + "\n")
+            f.flush()
+            path = Path(f.name)
+
+        try:
+            spans = load_realistic_logs_as_spans(path)
+            assert len(spans) == 2
+            assert spans[0].component == "lambda"
+            assert spans[1].component == "bedrock"
+        finally:
+            path.unlink()

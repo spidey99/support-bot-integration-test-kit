@@ -1,0 +1,5 @@
+{"level": "INFO", "timestamp": "2025-01-20T08:00:00.000Z", "message": "{\"component\": \"lambda\", \"operation\": \"handler.start\", \"requestId\": \"req-stringify-001\", \"traceId\": \"trace-stringify-001\"}"}
+{"level": "INFO", "timestamp": "2025-01-20T08:00:00.100Z", "data": "{\"component\": \"bedrock\", \"operation\": \"invoke_model\", \"traceId\": \"trace-stringify-001\"}"}
+{"level": "INFO", "timestamp": "2025-01-20T08:00:01.200Z", "payload": "{\"component\": \"bedrock\", \"operation\": \"model_response\", \"response\": {\"text\": \"Hello from stringified!\"}}"}
+{"level": "INFO", "timestamp": "2025-01-20T08:00:01.300Z", "record": "{\"service\": \"lambda\", \"method\": \"handler.complete\"}", "requestId": "req-stringify-001"}
+{"level": "INFO", "timestamp": "2025-01-20T08:00:01.400Z", "body": "\"{\\\"component\\\": \\\"sqs\\\", \\\"operation\\\": \\\"sendMessage\\\"}\""}
