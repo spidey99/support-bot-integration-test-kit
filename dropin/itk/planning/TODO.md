@@ -6,12 +6,12 @@
 
 ## BUGS DISCOVERED IN E2E TESTING
 
-### ITK-BUG-0001 — Logs Insights fails on new log groups (OPEN)
+### ITK-BUG-0001 — Logs Insights fails on new log groups (FIXED ✅)
 - **Symptom**: `itk view` returns 0 log events even though logs exist
 - **Root cause**: CloudWatch Logs Insights has an indexing delay for newly-created log groups. Direct API (`get-log-events`) works immediately, but Logs Insights queries (`start_query`) fail until indexed.
-- **Workaround**: Wait longer (minutes, not seconds)
-- **Fix needed**: ITK should detect when Logs Insights returns 0 on a log group that exists, and fall back to `filter_log_events` or `get_log_events` API
-- **File**: `dropin/itk/src/itk/logs/cloudwatch_fetch.py`
+- **Fix**: Added fallback to `filter_log_events` when Logs Insights returns 0 results
+- **File**: `dropin/itk/src/itk/report/historical_viewer.py`
+- **Commit**: d95593c
 
 ### ITK-BUG-0002 — E2E test uses Lambda-only flow (OPEN)
 - **Symptom**: E2E test validates Lambda→Logs→ITK but not Agent→Lambda→Logs→ITK
