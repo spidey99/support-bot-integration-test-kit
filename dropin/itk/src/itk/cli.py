@@ -3449,6 +3449,113 @@ def _cmd_discover_correlations(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_profile(args: argparse.Namespace) -> int:
+    """
+    Profile logs - deep extraction of structured data from messy logs.
+    
+    This command combs through log entries and extracts every identifiable
+    pattern, generating a "fact sheet" for each entry and a corpus summary.
+    """
+    import json
+    from pathlib import Path
+    
+    from itk.correlation.log_profiler import profile_corpus
+    
+    logs_path = Path(args.logs)
+    out_dir = Path(args.out)
+    debug = getattr(args, "debug", False)
+    
+    if not logs_path.exists():
+        print(f"ERROR: Log file not found: {logs_path}", file=sys.stderr)
+        return 1
+    
+    print("ITK Profile - Deep Log Extraction")
+    print("=" * 40)
+    print(f"Input: {logs_path}")
+    
+    # Load logs (JSON array or JSONL)
+    content = logs_path.read_text(encoding="utf-8")
+    try:
+        # Try JSON array first
+        data = json.loads(content)
+        if isinstance(data, list):
+            log_entries = data
+        else:
+            log_entries = [data]
+    except json.JSONDecodeError:
+        # Try JSONL
+        log_entries = []
+        for line in content.splitlines():
+            line = line.strip()
+            if line:
+                try:
+                    log_entries.append(json.loads(line))
+                except json.JSONDecodeError:
+                    pass
+    print(f"Loaded {len(log_entries)} log entries")
+    
+    # Profile the corpus
+    print("\nProfiling logs...")
+    profile = profile_corpus(log_entries, debug=debug)
+    
+    # Write outputs
+    out_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Write corpus summary
+    summary_path = out_dir / "corpus_profile.txt"
+    summary_path.write_text(profile.summary(), encoding="utf-8")
+    
+    # Write detailed fact sheets as JSON
+    facts_path = out_dir / "fact_sheets.json"
+    facts_data = []
+    for fs in profile.fact_sheets:
+        facts_data.append({
+            "timestamp": fs.timestamp,
+            "level": fs.level,
+            "component": fs.component,
+            "component_confidence": fs.component_confidence,
+            "message": fs.message[:200] if fs.message else None,
+            "agent_ids": fs.agent_ids,
+            "session_ids": fs.session_ids,
+            "trace_ids": fs.trace_ids,
+            "request_ids": fs.request_ids,
+            "correlation_ids": fs.correlation_ids,
+            "slack_channels": fs.slack_channels,
+            "slack_thread_ts": fs.slack_thread_ts,
+            "slack_users": fs.slack_users,
+            "arns": fs.arns,
+            "all_keys": list(fs.all_correlation_keys()),
+        })
+    facts_path.write_text(
+        json.dumps(facts_data, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    
+    # Write unique identifiers
+    identifiers_path = out_dir / "identifiers.json"
+    identifiers = {
+        "agent_ids": sorted(profile.all_agent_ids),
+        "session_ids": sorted(profile.all_session_ids),
+        "slack_channels": sorted(profile.all_slack_channels),
+        "slack_threads": sorted(profile.all_slack_threads),
+        "request_ids": sorted(profile.all_request_ids),
+    }
+    identifiers_path.write_text(
+        json.dumps(identifiers, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    
+    # Print summary
+    print("\n" + profile.summary())
+    
+    print(f"\nArtifacts written to: {out_dir}")
+    print(f"  • corpus_profile.txt")
+    print(f"  • fact_sheets.json ({len(facts_data)} entries)")
+    print(f"  • identifiers.json")
+    
+    return 0
+
+
 def _cmd_trace(args: argparse.Namespace) -> int:
     """
     Unified trace command: discover correlations and generate diagrams.
@@ -4242,6 +4349,28 @@ def main() -> None:
         help="Overwrite existing files",
     )
     p_init.set_defaults(func=_cmd_init)
+
+    # profile - deep extraction from messy logs
+    p_profile = sub.add_parser(
+        "profile",
+        help="Deep extraction of structured data from messy logs",
+    )
+    p_profile.add_argument(
+        "--logs",
+        required=True,
+        help="Path to log file (JSON array or JSONL)",
+    )
+    p_profile.add_argument(
+        "--out",
+        required=True,
+        help="Output directory for profile artifacts",
+    )
+    p_profile.add_argument(
+        "--debug",
+        action="store_true",
+        help="Show debug output during processing",
+    )
+    p_profile.set_defaults(func=_cmd_profile)
 
     # trace - unified e2e command (recommended)
     p_trace = sub.add_parser(
