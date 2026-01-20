@@ -2904,6 +2904,12 @@ def _cmd_init(args: argparse.Namespace) -> int:
 
 
 def main() -> None:
+    # Force UTF-8 output on Windows to handle emoji in output
+    import io
+    if sys.platform == "win32":
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+    
     # Perform startup checks
     _check_startup()
     

@@ -560,7 +560,7 @@
 - [ ] Explain version resolution behavior
 
 ## ITK-0048 — Update test counts and implementation notes
-- [ ] Update "453 tests" → "525 tests" in TODO.md
+- [ ] Update "453 tests" → "543 tests" in TODO.md
 - [ ] Update "What works now" section with new commands
 - [ ] Add `itk view` to command list
 - [ ] Add `itk discover` to command list
@@ -571,3 +571,43 @@
 - [ ] Summarize all completed phases
 - [ ] Document what's deferred (Phase 15 - reference infra)
 - [ ] Update README.md with current capability summary
+
+---
+
+## High Priority: E2E Prove-It Test (DEFERRED)
+
+## ITK-0051 — E2E prove_it test with isolated infra
+**STATUS: DEFERRED** — Time sink, will revisit after work repo validation
+
+Goal: Fully automated test that proves the entire ITK flow works:
+1. Accept AWS credentials as input (`export AWS_ACCESS_KEY_ID=...` format)
+2. Stand up **isolated** test infra via Terraform (different from shared infra)
+3. Invoke the infra to generate logs for ITK to consume
+4. Fresh directory, simulate derpy agent following setup prompt
+5. Run bootstrap, view, derive, test execution
+6. Tear down infra after run
+
+### Sub-items:
+- [ ] Create `infra/terraform-e2e/` with isolated resources (unique naming)
+- [ ] Create `scripts/prove_it_e2e.ps1` orchestrator script
+- [ ] Credential injection: parse `export` format, inject to .env
+- [ ] Terraform apply with timeout/validation
+- [ ] Invoke Lambda to generate CloudWatch logs (wait for propagation)
+- [ ] Run ITK bootstrap in fresh temp directory
+- [ ] Run `itk view --since 5m` and validate spans found
+- [ ] Run `itk derive` and validate case generated
+- [ ] Run derived case and validate pass
+- [ ] Terraform destroy (always, even on failure)
+- [ ] Report pass/fail with timing
+
+### Why isolated infra:
+- Existing infra is used for other tests — dirty state
+- E2E test must prove setup from scratch works
+- Parallel runs must not conflict
+
+### Blockers resolved before this:
+- [x] Bootstrap works with `export` prefix credentials
+- [x] Credentials preserved on `--force`
+- [x] BootstrapResult.discovered attribute exists
+- [x] CLI imports work correctly
+- [x] Windows UTF-8 encoding handled
