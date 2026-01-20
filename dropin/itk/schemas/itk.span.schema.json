@@ -57,6 +57,14 @@
       "type": ["string", "null"],
       "description": "Bedrock agent session ID for multi-turn conversations."
     },
+    "thread_id": {
+      "type": ["string", "null"],
+      "description": "Slack thread ID (timestamp format like 1768885845.305819). Primary correlation key for Slack-based systems."
+    },
+    "session_id": {
+      "type": ["string", "null"],
+      "description": "Generic session ID. Can be sessionId or x-amz-bedrock-agent-session-id. Used for correlation across components."
+    },
     "request": {
       "type": ["object", "null"],
       "description": "Input payload sent to the operation. Redact sensitive fields before logging."
