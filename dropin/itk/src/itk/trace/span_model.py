@@ -28,6 +28,8 @@ class Span:
     xray_trace_id: Optional[str] = None
     sqs_message_id: Optional[str] = None
     bedrock_session_id: Optional[str] = None
+    thread_id: Optional[str] = None  # Slack thread_id - primary correlation key
+    session_id: Optional[str] = None  # Generic session ID (e.g., x-amz-bedrock-agent-session-id)
 
     # Payloads
     request: Optional[dict[str, Any]] = None

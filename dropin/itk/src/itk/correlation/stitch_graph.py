@@ -33,6 +33,11 @@ def _get_span_correlation_keys(span: Span) -> set[str]:
     - xray:xxx for X-Ray trace IDs
     - sqs:xxx for SQS message IDs
     - bedrock:xxx for Bedrock session IDs
+    - thread:xxx for Slack thread IDs
+    - session:xxx for generic session IDs
+    
+    Note: thread_id and session_id may contain the same value (e.g., Slack timestamp
+    used as Bedrock session ID). The correlation engine will unify them.
     """
     keys: set[str] = set()
 
@@ -46,6 +51,14 @@ def _get_span_correlation_keys(span: Span) -> set[str]:
         keys.add(f"sqs:{span.sqs_message_id}")
     if span.bedrock_session_id:
         keys.add(f"bedrock:{span.bedrock_session_id}")
+    if span.thread_id:
+        keys.add(f"thread:{span.thread_id}")
+    if span.session_id:
+        keys.add(f"session:{span.session_id}")
+        # Also add as thread key if it looks like a Slack timestamp
+        # This helps correlate thread_id with x-amz-bedrock-agent-session-id
+        if "." in span.session_id and span.session_id.replace(".", "").isdigit():
+            keys.add(f"thread:{span.session_id}")
 
     return keys
 

@@ -209,3 +209,104 @@ class TestExtractedIds:
             "lambda_request_id": "req-123",
             "bedrock_session_id": "sess-456",
         }
+
+
+class TestSlackThreadIdExtraction:
+    """Tests for Slack thread_id / session_id extraction.
+    
+    Based on real production logs from support bot:
+    - thread_id: 1768885845.305819 (Slack timestamp)
+    - session_id: Same value passed to Bedrock as x-amz-bedrock-agent-session-id
+    """
+    
+    def test_extract_thread_id_from_event(self) -> None:
+        """Extract thread_id from event dict."""
+        event = {
+            "thread_id": "1768885845.305819",
+            "channel_id": "C07GVLMH5EG",
+        }
+        result = extract_ids_from_event(event)
+        assert result.thread_id == "1768885845.305819"
+
+    def test_extract_session_id_from_event(self) -> None:
+        """Extract sessionId from event dict."""
+        event = {
+            "sessionId": "1768885845.305819",
+        }
+        result = extract_ids_from_event(event)
+        assert result.session_id == "1768885845.305819"
+
+    def test_extract_bedrock_session_header_from_text(self) -> None:
+        """Extract x-amz-bedrock-agent-session-id from log text."""
+        from itk.correlation.id_extractors import extract_bedrock_session_id
+        text = "'x-amz-bedrock-agent-session-id': '1768885845.305819', 'sessionId': '1768885845.305819'"
+        result = extract_bedrock_session_id(text)
+        assert result == "1768885845.305819"
+
+    def test_extract_thread_id_from_text(self) -> None:
+        """Extract thread_id from log text."""
+        from itk.correlation.id_extractors import extract_thread_id
+        text = "SlackMessage class finished creation with: ... 'thread_id': '1768885845.305819' ..."
+        result = extract_thread_id(text)
+        assert result == "1768885845.305819"
+
+    def test_extract_session_id_from_text(self) -> None:
+        """Extract sessionId from log text."""
+        from itk.correlation.id_extractors import extract_session_id
+        text = "'sessionId': '1768885845.305819', 'channel_id': 'C07GVLMH5EG'"
+        result = extract_session_id(text)
+        assert result == "1768885845.305819"
+
+    def test_thread_id_in_all_ids(self) -> None:
+        """thread_id and session_id appear in all_ids()."""
+        ids = ExtractedIds(
+            thread_id="1768885845.305819",
+            session_id="1768885845.305819",
+        )
+        result = ids.all_ids()
+        assert result["thread_id"] == "1768885845.305819"
+        assert result["session_id"] == "1768885845.305819"
+
+    def test_has_any_with_thread_id(self) -> None:
+        """has_any returns True when only thread_id present."""
+        ids = ExtractedIds(thread_id="1768885845.305819")
+        assert ids.has_any() is True
+
+
+class TestThreadIdStitching:
+    """Tests that thread_id/session_id properly stitch spans together."""
+
+    def test_stitch_by_thread_id(self) -> None:
+        """Spans sharing thread_id should be stitched together."""
+        spans = [
+            Span(
+                span_id="sqs-event",
+                parent_span_id=None,
+                component="sqs",
+                operation="receive",
+                thread_id="1768885845.305819",
+            ),
+            Span(
+                span_id="lambda-handler",
+                parent_span_id=None,
+                component="lambda:orchestrator",
+                operation="handle",
+                thread_id="1768885845.305819",
+            ),
+            Span(
+                span_id="bedrock-invoke",
+                parent_span_id=None,
+                component="bedrock:agent",
+                operation="invoke",
+                session_id="1768885845.305819",
+            ),
+        ]
+
+        result = stitch_spans_by_id(spans, seed_span_ids={"sqs-event"})
+        
+        # All three should be stitched because:
+        # - sqs-event and lambda-handler share thread_id
+        # - bedrock-invoke has session_id = thread_id (same value)
+        assert len(result.spans) == 3
+        span_ids = {s.span_id for s in result.spans}
+        assert span_ids == {"sqs-event", "lambda-handler", "bedrock-invoke"}
