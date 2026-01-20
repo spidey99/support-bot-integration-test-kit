@@ -186,6 +186,43 @@ echo $AWS_REGION
 
 ## Python/Import Errors
 
+### Error: `SyntaxError` or Unexpected Token Errors
+```
+SyntaxError: invalid syntax
+# or
+TypeError: 'type' object is not subscriptable
+```
+
+**Cause:** You are using Python 3.10 or older. ITK requires Python 3.11+.
+
+**Fix:**
+```bash
+# Check current Python version
+python --version
+
+# If below 3.11, recreate virtual environment with Python 3.11+
+deactivate                         # Exit current venv
+rm -rf .venv                       # Remove old venv
+python3.11 -m venv .venv           # Create new venv with Python 3.11
+source .venv/bin/activate          # Linux/macOS
+# .\.venv\Scripts\Activate.ps1     # Windows PowerShell
+
+# Verify and reinstall
+python --version                   # Should show 3.11+
+pip install -e ".[dev]"
+```
+
+**If python3.11 not available, install it:**
+
+| OS | Command |
+|----|---------|
+| Ubuntu/Debian | `sudo apt update && sudo apt install python3.11 python3.11-venv` |
+| macOS (Homebrew) | `brew install python@3.11` |
+| Windows | Download from https://www.python.org/downloads/ |
+| Amazon Linux | `sudo yum install python3.11` |
+
+---
+
 ### Error: `ModuleNotFoundError: No module named 'itk'`
 ```
 ModuleNotFoundError: No module named 'itk'
@@ -193,6 +230,13 @@ ModuleNotFoundError: No module named 'itk'
 
 **Fix:**
 ```bash
+# Ensure you're in the correct virtual environment
+source .venv/bin/activate          # Linux/macOS
+# .\.venv\Scripts\Activate.ps1     # Windows PowerShell
+
+# Verify Python version (must be 3.11+)
+python --version
+
 # Install ITK
 cd dropin/itk
 pip install -e ".[dev]"
@@ -210,13 +254,17 @@ bash: itk: command not found
 
 **Fix:**
 ```bash
-# Option A: Run via Python module
+# Option A: Ensure virtual environment is activated
+source .venv/bin/activate          # Linux/macOS
+# .\.venv\Scripts\Activate.ps1     # Windows PowerShell
+
+# Option B: Run via Python module
 python -m itk --help
 
-# Option B: Reinstall
+# Option C: Reinstall
 pip install -e ".[dev]"
 
-# Option C: Check PATH includes pip bin
+# Option D: Check PATH includes pip bin
 echo $PATH | grep -E "\.local/bin|Scripts"
 ```
 

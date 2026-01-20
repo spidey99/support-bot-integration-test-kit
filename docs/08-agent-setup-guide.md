@@ -11,10 +11,84 @@ You are setting up the Integration Test Kit (ITK) to visualize and test Bedrock 
 4. Real AWS resource IDs look like: `WYEP3TYH1A` (agent ID), `/aws/lambda/itk-haiku-invoker` (log group)
 5. **NEVER duplicate key names in values** - WRONG: `ITK_LOG_GROUPS=ITK_LOG_GROUPS=/aws/...` RIGHT: `ITK_LOG_GROUPS=/aws/...`
 6. Do NOT copy `.env.example` directly - it has placeholder values that will fail
+7. **Use Python 3.11 or newer** - ITK requires Python 3.11+. Using an older version will cause errors.
 
 ---
 
-## Phase 0: Get AWS Credentials
+## Phase 0: Set Up Python Virtual Environment
+
+Before anything else, create a virtual environment with **Python 3.11 or newer**.
+
+**Step 0.1: Check Available Python Versions**
+```bash
+# Check what Python versions are available
+python --version
+python3 --version
+python3.11 --version   # Try specific versions
+python3.12 --version
+```
+
+Pick the command that shows Python 3.11 or higher. If none are available, install Python 3.11+ first.
+
+**Step 0.2: Install Python 3.11+ (if needed)**
+
+| OS | Command |
+|----|---------|
+| **Ubuntu/Debian** | `sudo apt update && sudo apt install python3.11 python3.11-venv` |
+| **macOS (Homebrew)** | `brew install python@3.11` |
+| **Windows** | Download from https://www.python.org/downloads/ (ensure "Add to PATH" is checked) |
+| **Amazon Linux** | `sudo yum install python3.11` |
+
+**Step 0.3: Create the Virtual Environment**
+
+*Linux/macOS:*
+```bash
+# Use the python3.11 (or python3.12) command explicitly
+python3.11 -m venv .venv
+source .venv/bin/activate
+```
+
+*Windows PowerShell:*
+```powershell
+# Use py launcher to specify Python version
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+```
+
+*Windows CMD:*
+```cmd
+py -3.11 -m venv .venv
+.\.venv\Scripts\activate.bat
+```
+
+**Step 0.4: Verify Python Version**
+```bash
+python --version
+```
+
+- [ ] Check: Output shows `Python 3.11.x` or higher
+
+If the version is below 3.11, STOP. Delete the venv and recreate with the correct Python:
+
+*Linux/macOS:*
+```bash
+deactivate
+rm -rf .venv
+python3.11 -m venv .venv
+source .venv/bin/activate
+```
+
+*Windows PowerShell:*
+```powershell
+deactivate
+Remove-Item -Recurse -Force .venv
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+```
+
+---
+
+## Phase 0.5: Get AWS Credentials
 
 Before starting, ensure you have AWS credentials in your terminal.
 
@@ -31,20 +105,40 @@ Before starting, ensure you have AWS credentials in your terminal.
 
 ## Phase 1: Install ITK
 
+> **Prerequisites:** You must have completed Phase 0 (Python 3.11+ virtual environment) first!
+
+Verify you are in the activated virtual environment:
+```bash
+python --version                                  # Must show 3.11+
+python -c "import sys; print(sys.executable)"    # Should point to .venv
+```
+
 **Option A: If the `dropin/itk` folder already exists in your project:**
 ```powershell
 cd dropin/itk
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
+# Virtual env should already be activated from Phase 0
 pip install -e ".[dev]"
 ```
 
 **Option B: Clone from GitHub (fresh project):**
+
+*Linux/macOS:*
+```bash
+git clone https://github.com/spidey99/support-bot-integration-test-kit.git itk-source
+cp -r itk-source/dropin/itk ./itk
+cd itk
+python3.11 -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"
+```
+
+*Windows PowerShell:*
 ```powershell
 git clone https://github.com/spidey99/support-bot-integration-test-kit.git itk-source
 Copy-Item -Recurse itk-source/dropin/itk ./itk
 cd itk
-python -m venv .venv
+# Use py launcher to specify Python version
+py -3.11 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -e ".[dev]"
 ```
@@ -159,6 +253,35 @@ itk suite --cases-dir cases/derived --out artifacts/suite
 ---
 
 ## Troubleshooting
+
+### Python Version Errors
+
+If you see `SyntaxError`, `ModuleNotFoundError`, or features not working:
+
+```bash
+# Check Python version in your virtual environment
+python --version
+```
+
+If Python version is below 3.11:
+```bash
+# Deactivate current venv
+deactivate
+
+# Remove old venv
+rm -rf .venv        # Linux/macOS
+Remove-Item -Recurse -Force .venv  # Windows PowerShell
+
+# Recreate with Python 3.11+
+python3.11 -m venv .venv
+source .venv/bin/activate         # Linux/macOS
+# OR
+.\.venv\Scripts\Activate.ps1      # Windows PowerShell
+
+# Verify and reinstall
+python --version    # Must show 3.11+
+pip install -e ".[dev]"
+```
 
 ### "Parsed 0 spans from N log events"
 

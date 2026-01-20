@@ -3,16 +3,36 @@
 ## Quick Setup
 
 ```bash
-# 1. Install ITK (editable mode for dev)
+# 1. Create virtual environment with Python 3.11+ (REQUIRED)
+python3.11 -m venv .venv              # Use python3.11, python3.12, etc.
+source .venv/bin/activate             # Linux/macOS
+# .\.venv\Scripts\Activate.ps1        # Windows PowerShell
+
+# 2. Verify Python version (must be 3.11+)
+python --version
+
+# 3. Install ITK (editable mode for dev)
 pip install -e dropin/itk[dev]
 
-# 2. Copy .env.example and fill in values
+# 4. Copy .env.example and fill in values
 cp dropin/itk/.env.example .env
 # Edit .env with your AWS targets
 
-# 3. Verify setup
+# 5. Verify setup
 itk --help
 ```
+
+> **⚠️ Important:** ITK requires Python 3.11 or newer. Using an older version 
+> will cause `SyntaxError` or `ModuleNotFoundError` errors.
+
+## Installing Python 3.11+ (if needed)
+
+| OS | Command |
+|----|---------|
+| Ubuntu/Debian | `sudo apt update && sudo apt install python3.11 python3.11-venv` |
+| macOS (Homebrew) | `brew install python@3.11` |
+| Windows | Download from https://www.python.org/downloads/ |
+| Amazon Linux | `sudo yum install python3.11` |
 
 ## Configuration
 
@@ -98,6 +118,20 @@ include:
 
 ## Troubleshooting
 
+### Python Version Errors (SyntaxError, ModuleNotFoundError)
+```bash
+# Check Python version
+python --version
+
+# If below 3.11, recreate virtual environment:
+deactivate
+rm -rf .venv
+python3.11 -m venv .venv
+source .venv/bin/activate   # Linux/macOS
+# .\.venv\Scripts\Activate.ps1  # Windows
+pip install -e dropin/itk[dev]
+```
+
 ### "Credentials expired"
 ```bash
 # Re-authenticate and update .env
@@ -111,7 +145,13 @@ include:
 
 ### "Command not found: itk"
 ```bash
+# First, ensure virtual environment is activated
+source .venv/bin/activate   # Linux/macOS
+# .\.venv\Scripts\Activate.ps1  # Windows
+
+# Then install or reinstall
 pip install -e dropin/itk[dev]
+
 # Or run via module
 python -m itk --help
 ```

@@ -3,6 +3,23 @@
 
 You are working inside the work repo with AWS access.
 
+## Python Environment (CRITICAL)
+
+**ITK requires Python 3.11 or newer.** Many errors occur from using older Python versions.
+
+Before running ITK commands, ensure proper Python environment:
+
+```bash
+# Check Python version
+python --version  # Must show 3.11+
+
+# If no venv exists or Python is too old, create one:
+python3.11 -m venv .venv
+source .venv/bin/activate   # Linux/macOS
+# .\.venv\Scripts\Activate.ps1  # Windows
+pip install -e ".[dev]"
+```
+
 ## Non-negotiables
 - Do NOT invent request formats. Cases must come from logs or explicit schemas.
 - Every run must emit a sequence diagram and payload files.
