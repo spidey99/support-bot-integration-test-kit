@@ -64,6 +64,15 @@ COMPONENT_PATTERNS: dict[str, list[str]] = {
     "sns": ["sns", "topic", "subscription", "publish"],
 }
 
+# Constants for input/error extraction
+MAX_MESSAGE_LENGTH = 500  # Max length for message content in extracted data
+
+# Patterns for detecting error conditions in log messages
+ERROR_PATTERNS = ("exception", "traceback", "failed", "failure", "error:")
+
+# Patterns for detecting response content in log messages
+RESPONSE_PATTERNS = ("response", "replied", "posted", "returned", "result")
+
 
 @dataclass
 class CorrelationValue:
@@ -561,7 +570,7 @@ def _extract_input_data(entry: LogEntry) -> dict[str, Any] | None:
     
     # Include log metadata as context
     input_fields["_log_level"] = raw.get("level", "INFO")
-    input_fields["_log_message"] = message[:500] if isinstance(message, str) else str(message)[:500]
+    input_fields["_log_message"] = message[:MAX_MESSAGE_LENGTH] if isinstance(message, str) else str(message)[:MAX_MESSAGE_LENGTH]
     if raw.get("logger_name"):
         input_fields["_logger"] = raw["logger_name"]
     if raw.get("appname"):
@@ -592,15 +601,14 @@ def _extract_response_data(entry: LogEntry) -> dict[str, Any] | None:
         message_lower = message.lower()
         
         # Look for response indicators
-        if any(pattern in message_lower for pattern in 
-               ("response", "replied", "posted", "returned", "result")):
+        if any(pattern in message_lower for pattern in RESPONSE_PATTERNS):
             # Try to extract embedded dict
             embedded = try_parse_python_dict_repr(message)
             if embedded:
                 return embedded
             
             # Return message as response summary
-            return {"_response_message": message[:500]}
+            return {"_response_message": message[:MAX_MESSAGE_LENGTH]}
     
     return None
 
@@ -632,7 +640,7 @@ def _detect_error(entry: LogEntry) -> dict[str, Any] | None:
         
         message = raw.get("message", "")
         if isinstance(message, str):
-            error_info["message"] = message[:500]
+            error_info["message"] = message[:MAX_MESSAGE_LENGTH]
             
             # Try to extract exception details from message
             embedded = try_parse_python_dict_repr(message)
@@ -645,11 +653,10 @@ def _detect_error(entry: LogEntry) -> dict[str, Any] | None:
     message = raw.get("message", "")
     if isinstance(message, str):
         message_lower = message.lower()
-        error_patterns = ("exception", "traceback", "failed", "failure", "error:")
-        if any(pattern in message_lower for pattern in error_patterns):
+        if any(pattern in message_lower for pattern in ERROR_PATTERNS):
             return {
                 "level": level or "UNKNOWN",
-                "message": message[:500],
+                "message": message[:MAX_MESSAGE_LENGTH],
             }
     
     return None
