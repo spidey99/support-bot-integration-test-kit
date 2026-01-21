@@ -630,3 +630,244 @@ class TestDetectAttempt:
         )
         result = _detect_attempt(entry)
         assert result == 1
+
+
+class TestMultiLogGroupCorrelation:
+    """Test correlation detection across multiple log groups.
+    
+    These tests verify that dynamic correlation discovery can stitch together
+    events from different CloudWatch log groups into coherent chains.
+    """
+
+    def test_correlate_across_two_log_groups(self) -> None:
+        """Correlate events from two different log groups via shared correlation value."""
+        logs = [
+            # From /aws/lambda/orchestrator log group
+            {
+                "log_group": "/aws/lambda/orchestrator",
+                "appname": "support-bot-orchestrator",
+                "level": "INFO",
+                "message": "Invoking Bedrock agent with session_id: 1768927632.159269",
+                "timestamp": "2025-06-20T17:27:12Z",
+            },
+            # From /aws/bedrock/agent log group
+            {
+                "log_group": "/aws/bedrock/agent",
+                "component": "bedrock",
+                "level": "INFO",
+                "message": "Agent invocation received",
+                "session_id": "1768927632.159269",
+                "timestamp": "2025-06-20T17:27:13Z",
+            },
+        ]
+        chains = discover_correlations(logs)
+        
+        # Should form a single chain across log groups
+        assert len(chains) >= 1
+        main_chain = max(chains, key=lambda c: c.component_count)
+        assert main_chain.component_count >= 2
+        
+        # Verify both log groups are represented
+        log_groups = {e.raw.get("log_group") for e in main_chain.entries}
+        assert "/aws/lambda/orchestrator" in log_groups
+        assert "/aws/bedrock/agent" in log_groups
+
+    def test_correlate_across_three_log_groups(self) -> None:
+        """Correlate events transitively across three different log groups."""
+        logs = [
+            # From SQS log group - has message_id
+            {
+                "log_group": "/aws/sqs/queue-processor",
+                "component": "sqs",
+                "messageId": "msg-abc-123",
+                "body": "{'thread_id': '1768927632.159269'}",
+                "timestamp": "2025-06-20T17:27:10Z",
+            },
+            # From Lambda log group - has both message_id and thread_id
+            {
+                "log_group": "/aws/lambda/orchestrator",
+                "appname": "support-bot-orchestrator",
+                "level": "INFO",
+                "message": "Processing SQS message msg-abc-123 for thread 1768927632.159269",
+                "timestamp": "2025-06-20T17:27:11Z",
+            },
+            # From Bedrock log group - has thread_id as session_id
+            {
+                "log_group": "/aws/bedrock/agent",
+                "component": "bedrock",
+                "session_id": "1768927632.159269",
+                "message": "Agent processing request",
+                "timestamp": "2025-06-20T17:27:12Z",
+            },
+        ]
+        chains = discover_correlations(logs)
+        
+        # Should form a single chain via transitive correlation
+        assert len(chains) >= 1
+        main_chain = max(chains, key=lambda c: c.component_count)
+        
+        # All three log groups should be stitched together
+        log_groups = {e.raw.get("log_group") for e in main_chain.entries}
+        assert len(log_groups) == 3
+        assert "/aws/sqs/queue-processor" in log_groups
+        assert "/aws/lambda/orchestrator" in log_groups
+        assert "/aws/bedrock/agent" in log_groups
+
+    def test_separate_chains_from_different_log_groups(self) -> None:
+        """Unrelated events from different log groups should not be correlated."""
+        logs = [
+            # Chain 1: Lambda + Bedrock with session A
+            {
+                "log_group": "/aws/lambda/orchestrator",
+                "appname": "support-bot-orchestrator",
+                "message": "Session A starting",
+                "session_id": "session-A",
+                "timestamp": "2025-06-20T17:27:10Z",
+            },
+            {
+                "log_group": "/aws/bedrock/agent",
+                "component": "bedrock",
+                "session_id": "session-A",
+                "message": "Processing session A",
+                "timestamp": "2025-06-20T17:27:11Z",
+            },
+            # Chain 2: Lambda + Bedrock with session B (unrelated)
+            {
+                "log_group": "/aws/lambda/orchestrator",
+                "appname": "support-bot-orchestrator",
+                "message": "Session B starting",
+                "session_id": "session-B",
+                "timestamp": "2025-06-20T17:27:20Z",
+            },
+            {
+                "log_group": "/aws/bedrock/agent",
+                "component": "bedrock",
+                "session_id": "session-B",
+                "message": "Processing session B",
+                "timestamp": "2025-06-20T17:27:21Z",
+            },
+        ]
+        chains = discover_correlations(logs)
+        
+        # Should form two separate chains, not one combined chain
+        assert len(chains) == 2
+        
+        # Each chain should have entries from both log groups
+        for chain in chains:
+            log_groups = {e.raw.get("log_group") for e in chain.entries}
+            assert "/aws/lambda/orchestrator" in log_groups
+            assert "/aws/bedrock/agent" in log_groups
+
+    def test_bridge_value_spans_multiple_log_groups(self) -> None:
+        """Bridge values should be identified when they span multiple log groups."""
+        entries = [
+            LogEntry(
+                raw={"log_group": "/aws/lambda/orchestrator"},
+                component="lambda",
+                index=0,
+                correlation_values={
+                    CorrelationValue("bridge-123", "session"),
+                    CorrelationValue("lambda-only-id", "uuid"),
+                },
+            ),
+            LogEntry(
+                raw={"log_group": "/aws/bedrock/agent"},
+                component="bedrock",
+                index=1,
+                correlation_values={
+                    CorrelationValue("bridge-123", "session"),
+                    CorrelationValue("bedrock-only-id", "uuid"),
+                },
+            ),
+            LogEntry(
+                raw={"log_group": "/aws/slack/webhook"},
+                component="slack",
+                index=2,
+                correlation_values={
+                    CorrelationValue("bridge-123", "session"),
+                },
+            ),
+        ]
+        chains = build_correlation_chains(entries)
+        
+        assert len(chains) == 1
+        chain = chains[0]
+        
+        # Bridge value should span all three components
+        assert "bridge-123" in chain.bridge_values
+        assert len(chain.bridge_values["bridge-123"]) == 3
+        
+        # Component-specific IDs should NOT be bridge values
+        assert "lambda-only-id" not in chain.bridge_values
+        assert "bedrock-only-id" not in chain.bridge_values
+
+    def test_full_support_bot_flow_multi_log_group(self) -> None:
+        """Simulate full support bot flow across 4 log groups."""
+        logs = [
+            # SQS receives Slack event
+            {
+                "log_group": "/aws/sqs/slack-events",
+                "component": "sqs",
+                "messageId": "sqs-msg-001",
+                "body": "{'ts': '1768927632.159269', 'user': 'U08PS4EAM6M'}",
+                "timestamp": "2025-06-20T17:27:10Z",
+            },
+            # Lambda orchestrator processes event
+            {
+                "log_group": "/aws/lambda/support-bot-orchestrator",
+                "appname": "support-bot-orchestrator",
+                "level": "INFO",
+                "message": "Event_body is {'ts': '1768927632.159269', 'user': 'U08PS4EAM6M'}",
+                "timestamp": "2025-06-20T17:27:11Z",
+            },
+            # SlackMessage created
+            {
+                "log_group": "/aws/lambda/support-bot-orchestrator",
+                "appname": "support-bot-orchestrator",
+                "logger_name": "data_classes.slack_data",
+                "message": "SlackMessage class finished creation with: {'thread_id': '1768927632.159269', 'channel': 'C07GVLMH5EG'}",
+                "timestamp": "2025-06-20T17:27:11.500Z",
+            },
+            # Bedrock agent invocation
+            {
+                "log_group": "/aws/bedrock/support-bot-agent",
+                "component": "bedrock",
+                "session_id": "1768927632.159269",
+                "message": "Agent invocation started",
+                "timestamp": "2025-06-20T17:27:12Z",
+            },
+            # Bedrock agent response
+            {
+                "log_group": "/aws/bedrock/support-bot-agent",
+                "component": "bedrock",
+                "session_id": "1768927632.159269",
+                "message": "Agent response: CaaS 2.0 is the next generation...",
+                "timestamp": "2025-06-20T17:27:15Z",
+            },
+            # Slack response posted
+            {
+                "log_group": "/aws/lambda/support-bot-orchestrator",
+                "appname": "support-bot-orchestrator",
+                "logger_name": "slack.response",
+                "message": "Posted response to channel C07GVLMH5EG thread 1768927632.159269",
+                "timestamp": "2025-06-20T17:27:16Z",
+            },
+        ]
+        chains = discover_correlations(logs)
+        
+        # Should form a single chain
+        assert len(chains) >= 1
+        main_chain = max(chains, key=lambda c: c.component_count)
+        
+        # Chain should span multiple components
+        assert main_chain.component_count >= 3
+        
+        # Verify log groups are represented
+        log_groups = {e.raw.get("log_group") for e in main_chain.entries}
+        assert "/aws/sqs/slack-events" in log_groups
+        assert "/aws/lambda/support-bot-orchestrator" in log_groups
+        assert "/aws/bedrock/support-bot-agent" in log_groups
+        
+        # Thread ID should be identified as bridge value
+        bridge_keys = list(main_chain.bridge_values.keys())
+        assert any("1768927632.159269" in k for k in bridge_keys)
