@@ -576,3 +576,57 @@ class TestChainToSpansWithExtractedData:
         assert spans[0].ts_start is not None
         assert spans[0].ts_end is not None
         assert spans[0].ts_start == spans[0].ts_end
+
+
+class TestDetectAttempt:
+    """Test retry attempt detection from log entries."""
+
+    def test_detect_from_explicit_attempt_field(self) -> None:
+        """Detect attempt from explicit 'attempt' field."""
+        from itk.correlation.dynamic_discovery import _detect_attempt
+        entry = LogEntry(
+            raw={"attempt": 3, "message": "Processing request"},
+            component="lambda",
+        )
+        result = _detect_attempt(entry)
+        assert result == 3
+
+    def test_detect_from_explicit_retry_field(self) -> None:
+        """Detect attempt from explicit 'retry' field (retry + 1 = attempt)."""
+        from itk.correlation.dynamic_discovery import _detect_attempt
+        entry = LogEntry(
+            raw={"retry": 2, "message": "Processing request"},
+            component="lambda",
+        )
+        result = _detect_attempt(entry)
+        assert result == 3  # retry 2 means attempt 3
+
+    def test_detect_from_message_pattern(self) -> None:
+        """Detect attempt from retry patterns in message."""
+        from itk.correlation.dynamic_discovery import _detect_attempt
+        entry = LogEntry(
+            raw={"message": "Retrying Bedrock agent call, attempt 2"},
+            component="bedrock",
+        )
+        result = _detect_attempt(entry)
+        assert result == 2
+
+    def test_detect_retry_without_number(self) -> None:
+        """Retry keyword without number assumes attempt 2."""
+        from itk.correlation.dynamic_discovery import _detect_attempt
+        entry = LogEntry(
+            raw={"message": "Retrying the request after backoff"},
+            component="lambda",
+        )
+        result = _detect_attempt(entry)
+        assert result == 2
+
+    def test_no_retry_returns_1(self) -> None:
+        """No retry indicators should return attempt 1."""
+        from itk.correlation.dynamic_discovery import _detect_attempt
+        entry = LogEntry(
+            raw={"level": "INFO", "message": "Request completed successfully"},
+            component="lambda",
+        )
+        result = _detect_attempt(entry)
+        assert result == 1

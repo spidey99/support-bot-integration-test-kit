@@ -73,6 +73,9 @@ ERROR_PATTERNS = ("exception", "traceback", "failed", "failure", "error:")
 # Patterns for detecting response content in log messages
 RESPONSE_PATTERNS = ("response", "replied", "posted", "returned", "result")
 
+# Patterns for detecting retry attempts in log messages
+RETRY_PATTERNS = ("retry", "retrying", "attempt", "retried", "backoff")
+
 
 @dataclass
 class CorrelationValue:
@@ -662,6 +665,59 @@ def _detect_error(entry: LogEntry) -> dict[str, Any] | None:
     return None
 
 
+def _detect_attempt(entry: LogEntry) -> int:
+    """
+    Detect retry attempt number from a log entry.
+    
+    Checks:
+    1. Explicit 'attempt' or 'retry' field
+    2. Retry patterns in message (extracts attempt number if present)
+    
+    Returns:
+        Attempt number (1 = first attempt, 2+ = retry)
+    """
+    raw = entry.raw
+    
+    # Check explicit attempt field
+    attempt = raw.get("attempt")
+    if attempt is not None:
+        try:
+            return int(attempt)
+        except (ValueError, TypeError):
+            pass
+    
+    # Check explicit retry field
+    retry = raw.get("retry")
+    if retry is not None:
+        try:
+            # If retry=2, that means attempt=3
+            return int(retry) + 1
+        except (ValueError, TypeError):
+            pass
+    
+    # Check for retry patterns in message
+    message = raw.get("message", "")
+    if isinstance(message, str):
+        message_lower = message.lower()
+        
+        # Check for retry indicators
+        if any(pattern in message_lower for pattern in RETRY_PATTERNS):
+            # Try to extract attempt number from message
+            import re
+            # Look for patterns like "attempt 2", "retry 3", "attempt: 2"
+            match = re.search(r'(?:attempt|retry)[:\s]*(\d+)', message_lower)
+            if match:
+                try:
+                    return int(match.group(1))
+                except ValueError:
+                    pass
+            # If retry pattern found but no number, assume it's at least attempt 2
+            return 2
+    
+    # Default: first attempt
+    return 1
+
+
 def chain_to_spans(chain: CorrelationChain, chain_id: str) -> list["Span"]:
     """
     Convert a CorrelationChain to a list of Spans.
@@ -719,6 +775,7 @@ def chain_to_spans(chain: CorrelationChain, chain_id: str) -> list["Span"]:
         request_data = _extract_input_data(entry)
         response_data = _extract_response_data(entry)
         error_data = _detect_error(entry)
+        attempt = _detect_attempt(entry)
         
         span = Span(
             span_id=f"{chain_id}-{i}",
@@ -727,6 +784,7 @@ def chain_to_spans(chain: CorrelationChain, chain_id: str) -> list["Span"]:
             operation=operation,
             ts_start=ts,
             ts_end=ts,  # Use same timestamp to enable response event rendering
+            attempt=attempt,
             itk_trace_id=chain_id,
             thread_id=thread_id or primary_bridge,
             session_id=session_id or primary_bridge,

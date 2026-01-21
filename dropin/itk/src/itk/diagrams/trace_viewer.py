@@ -189,8 +189,8 @@ def _extract_messages_timeline(
         if span.ts_start:
             events.append((span.ts_start, False, span))
 
-        # Response event at ts_end (only if has response or error)
-        if span.ts_end and (span.response is not None or span.error is not None):
+        # Response event at ts_end (always create to show success/error indicators)
+        if span.ts_end:
             events.append((span.ts_end, True, span))
 
     # Sort by timestamp, then responses after requests at same time
