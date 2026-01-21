@@ -435,3 +435,144 @@ class TestChainToSpans:
         assert len(spans) == 1
         assert spans[0].thread_id == "1768927632.159269"
         assert spans[0].session_id == "1768927632.159269"
+
+
+class TestExtractInputData:
+    """Test extraction of input/request data from log entries."""
+
+    def test_extract_from_explicit_request_field(self) -> None:
+        """Extract from explicit 'request' field."""
+        from itk.correlation.dynamic_discovery import _extract_input_data
+        entry = LogEntry(
+            raw={"request": {"userMessage": "Hello"}},
+            component="lambda",
+        )
+        result = _extract_input_data(entry)
+        assert result == {"userMessage": "Hello"}
+
+    def test_extract_from_embedded_dict_in_message(self) -> None:
+        """Extract embedded dict from message field."""
+        from itk.correlation.dynamic_discovery import _extract_input_data
+        entry = LogEntry(
+            raw={"message": "Event_body is {'message': 'What is CaaS 2.0?', 'ts': '123'}"},
+            component="lambda",
+        )
+        result = _extract_input_data(entry)
+        assert result is not None
+        assert result.get("message") == "What is CaaS 2.0?"
+        assert result.get("ts") == "123"
+
+    def test_extract_log_metadata_as_fallback(self) -> None:
+        """Include log metadata when no structured input data."""
+        from itk.correlation.dynamic_discovery import _extract_input_data
+        entry = LogEntry(
+            raw={"level": "INFO", "message": "Simple log message", "logger_name": "main", "appname": "my-app"},
+            component="lambda",
+        )
+        result = _extract_input_data(entry)
+        assert result is not None
+        assert result.get("_log_level") == "INFO"
+        assert "_log_message" in result
+
+
+class TestDetectError:
+    """Test error detection from log entries."""
+
+    def test_detect_from_explicit_error_field(self) -> None:
+        """Detect error from explicit 'error' field."""
+        from itk.correlation.dynamic_discovery import _detect_error
+        entry = LogEntry(
+            raw={"error": {"type": "ThrottlingException", "message": "Rate exceeded"}},
+            component="lambda",
+        )
+        result = _detect_error(entry)
+        assert result is not None
+        assert result["type"] == "ThrottlingException"
+
+    def test_detect_from_error_log_level(self) -> None:
+        """Detect error from ERROR log level."""
+        from itk.correlation.dynamic_discovery import _detect_error
+        entry = LogEntry(
+            raw={"level": "ERROR", "message": "Failed to invoke Bedrock agent"},
+            component="lambda",
+        )
+        result = _detect_error(entry)
+        assert result is not None
+        assert result["level"] == "ERROR"
+        assert "Failed to invoke" in result["message"]
+
+    def test_no_error_for_info_log(self) -> None:
+        """INFO log without error patterns should return None."""
+        from itk.correlation.dynamic_discovery import _detect_error
+        entry = LogEntry(
+            raw={"level": "INFO", "message": "Request completed successfully"},
+            component="lambda",
+        )
+        result = _detect_error(entry)
+        assert result is None
+
+    def test_detect_error_patterns_in_message(self) -> None:
+        """Detect error from keywords in message even if level is not ERROR."""
+        from itk.correlation.dynamic_discovery import _detect_error
+        entry = LogEntry(
+            raw={"level": "WARNING", "message": "Exception occurred: NullPointerException"},
+            component="lambda",
+        )
+        result = _detect_error(entry)
+        assert result is not None
+        assert "Exception" in result["message"]
+
+
+class TestChainToSpansWithExtractedData:
+    """Test chain_to_spans properly extracts request/error data."""
+
+    def test_chain_to_spans_extracts_error_from_log_level(self) -> None:
+        """Spans should have error field when log level is ERROR."""
+        entries = [
+            LogEntry(
+                raw={"level": "INFO", "message": "Request received"},
+                component="lambda",
+                timestamp="2025-06-20T17:27:12Z",
+                correlation_values={CorrelationValue("123", "slack_ts")},
+                index=0,
+            ),
+            LogEntry(
+                raw={"level": "ERROR", "message": "ThrottlingException: Rate limit exceeded"},
+                component="bedrock",
+                timestamp="2025-06-20T17:27:13Z",
+                correlation_values={CorrelationValue("123", "slack_ts")},
+                index=1,
+            ),
+        ]
+        chains = build_correlation_chains(entries)
+        assert len(chains) == 1
+        
+        spans = chain_to_spans(chains[0], "test-chain")
+        assert len(spans) == 2
+        
+        # First span should NOT have error
+        assert spans[0].error is None
+        
+        # Second span SHOULD have error
+        assert spans[1].error is not None
+        assert spans[1].error["level"] == "ERROR"
+
+    def test_chain_to_spans_has_ts_end(self) -> None:
+        """Spans should have ts_end set for proper timeline rendering."""
+        entries = [
+            LogEntry(
+                raw={"level": "INFO", "message": "Test"},
+                component="lambda",
+                timestamp="2025-06-20T17:27:12Z",
+                correlation_values={CorrelationValue("123", "slack_ts")},
+                index=0,
+            ),
+        ]
+        from itk.correlation.dynamic_discovery import CorrelationChain
+        chain = CorrelationChain(entries=entries, bridge_values={"123": {"lambda"}})
+        
+        spans = chain_to_spans(chain, "test-chain")
+        assert len(spans) == 1
+        assert spans[0].ts_start is not None
+        assert spans[0].ts_end is not None
+        assert spans[0].ts_start == spans[0].ts_end
