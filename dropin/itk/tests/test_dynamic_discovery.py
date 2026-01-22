@@ -435,3 +435,439 @@ class TestChainToSpans:
         assert len(spans) == 1
         assert spans[0].thread_id == "1768927632.159269"
         assert spans[0].session_id == "1768927632.159269"
+
+
+class TestExtractInputData:
+    """Test extraction of input/request data from log entries."""
+
+    def test_extract_from_explicit_request_field(self) -> None:
+        """Extract from explicit 'request' field."""
+        from itk.correlation.dynamic_discovery import _extract_input_data
+        entry = LogEntry(
+            raw={"request": {"userMessage": "Hello"}},
+            component="lambda",
+        )
+        result = _extract_input_data(entry)
+        assert result == {"userMessage": "Hello"}
+
+    def test_extract_from_embedded_dict_in_message(self) -> None:
+        """Extract embedded dict from message field."""
+        from itk.correlation.dynamic_discovery import _extract_input_data
+        entry = LogEntry(
+            raw={"message": "Event_body is {'message': 'What is CaaS 2.0?', 'ts': '123'}"},
+            component="lambda",
+        )
+        result = _extract_input_data(entry)
+        assert result is not None
+        assert result.get("message") == "What is CaaS 2.0?"
+        assert result.get("ts") == "123"
+
+    def test_extract_log_metadata_as_fallback(self) -> None:
+        """Include log metadata when no structured input data."""
+        from itk.correlation.dynamic_discovery import _extract_input_data
+        entry = LogEntry(
+            raw={"level": "INFO", "message": "Simple log message", "logger_name": "main", "appname": "my-app"},
+            component="lambda",
+        )
+        result = _extract_input_data(entry)
+        assert result is not None
+        assert result.get("_log_level") == "INFO"
+        assert "_log_message" in result
+
+
+class TestDetectError:
+    """Test error detection from log entries."""
+
+    def test_detect_from_explicit_error_field(self) -> None:
+        """Detect error from explicit 'error' field."""
+        from itk.correlation.dynamic_discovery import _detect_error
+        entry = LogEntry(
+            raw={"error": {"type": "ThrottlingException", "message": "Rate exceeded"}},
+            component="lambda",
+        )
+        result = _detect_error(entry)
+        assert result is not None
+        assert result["type"] == "ThrottlingException"
+
+    def test_detect_from_error_log_level(self) -> None:
+        """Detect error from ERROR log level."""
+        from itk.correlation.dynamic_discovery import _detect_error
+        entry = LogEntry(
+            raw={"level": "ERROR", "message": "Failed to invoke Bedrock agent"},
+            component="lambda",
+        )
+        result = _detect_error(entry)
+        assert result is not None
+        assert result["level"] == "ERROR"
+        assert "Failed to invoke" in result["message"]
+
+    def test_no_error_for_info_log(self) -> None:
+        """INFO log without error patterns should return None."""
+        from itk.correlation.dynamic_discovery import _detect_error
+        entry = LogEntry(
+            raw={"level": "INFO", "message": "Request completed successfully"},
+            component="lambda",
+        )
+        result = _detect_error(entry)
+        assert result is None
+
+    def test_detect_error_patterns_in_message(self) -> None:
+        """Detect error from keywords in message even if level is not ERROR."""
+        from itk.correlation.dynamic_discovery import _detect_error
+        entry = LogEntry(
+            raw={"level": "WARNING", "message": "Exception occurred: NullPointerException"},
+            component="lambda",
+        )
+        result = _detect_error(entry)
+        assert result is not None
+        assert "Exception" in result["message"]
+
+
+class TestChainToSpansWithExtractedData:
+    """Test chain_to_spans properly extracts request/error data."""
+
+    def test_chain_to_spans_extracts_error_from_log_level(self) -> None:
+        """Spans should have error field when log level is ERROR."""
+        entries = [
+            LogEntry(
+                raw={"level": "INFO", "message": "Request received"},
+                component="lambda",
+                timestamp="2025-06-20T17:27:12Z",
+                correlation_values={CorrelationValue("123", "slack_ts")},
+                index=0,
+            ),
+            LogEntry(
+                raw={"level": "ERROR", "message": "ThrottlingException: Rate limit exceeded"},
+                component="bedrock",
+                timestamp="2025-06-20T17:27:13Z",
+                correlation_values={CorrelationValue("123", "slack_ts")},
+                index=1,
+            ),
+        ]
+        chains = build_correlation_chains(entries)
+        assert len(chains) == 1
+        
+        spans = chain_to_spans(chains[0], "test-chain")
+        assert len(spans) == 2
+        
+        # First span should NOT have error
+        assert spans[0].error is None
+        
+        # Second span SHOULD have error
+        assert spans[1].error is not None
+        assert spans[1].error["level"] == "ERROR"
+
+    def test_chain_to_spans_has_ts_end(self) -> None:
+        """Spans should have ts_end set for proper timeline rendering."""
+        entries = [
+            LogEntry(
+                raw={"level": "INFO", "message": "Test"},
+                component="lambda",
+                timestamp="2025-06-20T17:27:12Z",
+                correlation_values={CorrelationValue("123", "slack_ts")},
+                index=0,
+            ),
+        ]
+        from itk.correlation.dynamic_discovery import CorrelationChain
+        chain = CorrelationChain(entries=entries, bridge_values={"123": {"lambda"}})
+        
+        spans = chain_to_spans(chain, "test-chain")
+        assert len(spans) == 1
+        assert spans[0].ts_start is not None
+        assert spans[0].ts_end is not None
+        assert spans[0].ts_start == spans[0].ts_end
+
+
+class TestDetectAttempt:
+    """Test retry attempt detection from log entries."""
+
+    def test_detect_from_explicit_attempt_field(self) -> None:
+        """Detect attempt from explicit 'attempt' field."""
+        from itk.correlation.dynamic_discovery import _detect_attempt
+        entry = LogEntry(
+            raw={"attempt": 3, "message": "Processing request"},
+            component="lambda",
+        )
+        result = _detect_attempt(entry)
+        assert result == 3
+
+    def test_detect_from_explicit_retry_field(self) -> None:
+        """Detect attempt from explicit 'retry' field (retry + 1 = attempt)."""
+        from itk.correlation.dynamic_discovery import _detect_attempt
+        entry = LogEntry(
+            raw={"retry": 2, "message": "Processing request"},
+            component="lambda",
+        )
+        result = _detect_attempt(entry)
+        assert result == 3  # retry 2 means attempt 3
+
+    def test_detect_from_message_pattern(self) -> None:
+        """Detect attempt from retry patterns in message."""
+        from itk.correlation.dynamic_discovery import _detect_attempt
+        entry = LogEntry(
+            raw={"message": "Retrying Bedrock agent call, attempt 2"},
+            component="bedrock",
+        )
+        result = _detect_attempt(entry)
+        assert result == 2
+
+    def test_detect_retry_without_number(self) -> None:
+        """Retry keyword without number assumes attempt 2."""
+        from itk.correlation.dynamic_discovery import _detect_attempt
+        entry = LogEntry(
+            raw={"message": "Retrying the request after backoff"},
+            component="lambda",
+        )
+        result = _detect_attempt(entry)
+        assert result == 2
+
+    def test_no_retry_returns_1(self) -> None:
+        """No retry indicators should return attempt 1."""
+        from itk.correlation.dynamic_discovery import _detect_attempt
+        entry = LogEntry(
+            raw={"level": "INFO", "message": "Request completed successfully"},
+            component="lambda",
+        )
+        result = _detect_attempt(entry)
+        assert result == 1
+
+
+class TestMultiLogGroupCorrelation:
+    """Test correlation detection across multiple log groups.
+    
+    These tests verify that dynamic correlation discovery can stitch together
+    events from different CloudWatch log groups into coherent chains.
+    """
+
+    def test_correlate_across_two_log_groups(self) -> None:
+        """Correlate events from two different log groups via shared correlation value."""
+        logs = [
+            # From /aws/lambda/orchestrator log group
+            {
+                "log_group": "/aws/lambda/orchestrator",
+                "appname": "support-bot-orchestrator",
+                "level": "INFO",
+                "message": "Invoking Bedrock agent with session_id: 1768927632.159269",
+                "timestamp": "2025-06-20T17:27:12Z",
+            },
+            # From /aws/bedrock/agent log group
+            {
+                "log_group": "/aws/bedrock/agent",
+                "component": "bedrock",
+                "level": "INFO",
+                "message": "Agent invocation received",
+                "session_id": "1768927632.159269",
+                "timestamp": "2025-06-20T17:27:13Z",
+            },
+        ]
+        chains = discover_correlations(logs)
+        
+        # Should form a single chain across log groups
+        assert len(chains) >= 1
+        main_chain = max(chains, key=lambda c: c.component_count)
+        assert main_chain.component_count >= 2
+        
+        # Verify both log groups are represented
+        log_groups = {e.raw.get("log_group") for e in main_chain.entries}
+        assert "/aws/lambda/orchestrator" in log_groups
+        assert "/aws/bedrock/agent" in log_groups
+
+    def test_correlate_across_three_log_groups(self) -> None:
+        """Correlate events transitively across three different log groups."""
+        logs = [
+            # From SQS log group - has message_id
+            {
+                "log_group": "/aws/sqs/queue-processor",
+                "component": "sqs",
+                "messageId": "msg-abc-123",
+                "body": "{'thread_id': '1768927632.159269'}",
+                "timestamp": "2025-06-20T17:27:10Z",
+            },
+            # From Lambda log group - has both message_id and thread_id
+            {
+                "log_group": "/aws/lambda/orchestrator",
+                "appname": "support-bot-orchestrator",
+                "level": "INFO",
+                "message": "Processing SQS message msg-abc-123 for thread 1768927632.159269",
+                "timestamp": "2025-06-20T17:27:11Z",
+            },
+            # From Bedrock log group - has thread_id as session_id
+            {
+                "log_group": "/aws/bedrock/agent",
+                "component": "bedrock",
+                "session_id": "1768927632.159269",
+                "message": "Agent processing request",
+                "timestamp": "2025-06-20T17:27:12Z",
+            },
+        ]
+        chains = discover_correlations(logs)
+        
+        # Should form a single chain via transitive correlation
+        assert len(chains) >= 1
+        main_chain = max(chains, key=lambda c: c.component_count)
+        
+        # All three log groups should be stitched together
+        log_groups = {e.raw.get("log_group") for e in main_chain.entries}
+        assert len(log_groups) == 3
+        assert "/aws/sqs/queue-processor" in log_groups
+        assert "/aws/lambda/orchestrator" in log_groups
+        assert "/aws/bedrock/agent" in log_groups
+
+    def test_separate_chains_from_different_log_groups(self) -> None:
+        """Unrelated events from different log groups should not be correlated."""
+        logs = [
+            # Chain 1: Lambda + Bedrock with session A
+            {
+                "log_group": "/aws/lambda/orchestrator",
+                "appname": "support-bot-orchestrator",
+                "message": "Session A starting",
+                "session_id": "session-A",
+                "timestamp": "2025-06-20T17:27:10Z",
+            },
+            {
+                "log_group": "/aws/bedrock/agent",
+                "component": "bedrock",
+                "session_id": "session-A",
+                "message": "Processing session A",
+                "timestamp": "2025-06-20T17:27:11Z",
+            },
+            # Chain 2: Lambda + Bedrock with session B (unrelated)
+            {
+                "log_group": "/aws/lambda/orchestrator",
+                "appname": "support-bot-orchestrator",
+                "message": "Session B starting",
+                "session_id": "session-B",
+                "timestamp": "2025-06-20T17:27:20Z",
+            },
+            {
+                "log_group": "/aws/bedrock/agent",
+                "component": "bedrock",
+                "session_id": "session-B",
+                "message": "Processing session B",
+                "timestamp": "2025-06-20T17:27:21Z",
+            },
+        ]
+        chains = discover_correlations(logs)
+        
+        # Should form two separate chains, not one combined chain
+        assert len(chains) == 2
+        
+        # Each chain should have entries from both log groups
+        for chain in chains:
+            log_groups = {e.raw.get("log_group") for e in chain.entries}
+            assert "/aws/lambda/orchestrator" in log_groups
+            assert "/aws/bedrock/agent" in log_groups
+
+    def test_bridge_value_spans_multiple_log_groups(self) -> None:
+        """Bridge values should be identified when they span multiple log groups."""
+        entries = [
+            LogEntry(
+                raw={"log_group": "/aws/lambda/orchestrator"},
+                component="lambda",
+                index=0,
+                correlation_values={
+                    CorrelationValue("bridge-123", "session"),
+                    CorrelationValue("lambda-only-id", "uuid"),
+                },
+            ),
+            LogEntry(
+                raw={"log_group": "/aws/bedrock/agent"},
+                component="bedrock",
+                index=1,
+                correlation_values={
+                    CorrelationValue("bridge-123", "session"),
+                    CorrelationValue("bedrock-only-id", "uuid"),
+                },
+            ),
+            LogEntry(
+                raw={"log_group": "/aws/slack/webhook"},
+                component="slack",
+                index=2,
+                correlation_values={
+                    CorrelationValue("bridge-123", "session"),
+                },
+            ),
+        ]
+        chains = build_correlation_chains(entries)
+        
+        assert len(chains) == 1
+        chain = chains[0]
+        
+        # Bridge value should span all three components
+        assert "bridge-123" in chain.bridge_values
+        assert len(chain.bridge_values["bridge-123"]) == 3
+        
+        # Component-specific IDs should NOT be bridge values
+        assert "lambda-only-id" not in chain.bridge_values
+        assert "bedrock-only-id" not in chain.bridge_values
+
+    def test_full_support_bot_flow_multi_log_group(self) -> None:
+        """Simulate full support bot flow across 4 log groups."""
+        logs = [
+            # SQS receives Slack event
+            {
+                "log_group": "/aws/sqs/slack-events",
+                "component": "sqs",
+                "messageId": "sqs-msg-001",
+                "body": "{'ts': '1768927632.159269', 'user': 'U08PS4EAM6M'}",
+                "timestamp": "2025-06-20T17:27:10Z",
+            },
+            # Lambda orchestrator processes event
+            {
+                "log_group": "/aws/lambda/support-bot-orchestrator",
+                "appname": "support-bot-orchestrator",
+                "level": "INFO",
+                "message": "Event_body is {'ts': '1768927632.159269', 'user': 'U08PS4EAM6M'}",
+                "timestamp": "2025-06-20T17:27:11Z",
+            },
+            # SlackMessage created
+            {
+                "log_group": "/aws/lambda/support-bot-orchestrator",
+                "appname": "support-bot-orchestrator",
+                "logger_name": "data_classes.slack_data",
+                "message": "SlackMessage class finished creation with: {'thread_id': '1768927632.159269', 'channel': 'C07GVLMH5EG'}",
+                "timestamp": "2025-06-20T17:27:11.500Z",
+            },
+            # Bedrock agent invocation
+            {
+                "log_group": "/aws/bedrock/support-bot-agent",
+                "component": "bedrock",
+                "session_id": "1768927632.159269",
+                "message": "Agent invocation started",
+                "timestamp": "2025-06-20T17:27:12Z",
+            },
+            # Bedrock agent response
+            {
+                "log_group": "/aws/bedrock/support-bot-agent",
+                "component": "bedrock",
+                "session_id": "1768927632.159269",
+                "message": "Agent response: CaaS 2.0 is the next generation...",
+                "timestamp": "2025-06-20T17:27:15Z",
+            },
+            # Slack response posted
+            {
+                "log_group": "/aws/lambda/support-bot-orchestrator",
+                "appname": "support-bot-orchestrator",
+                "logger_name": "slack.response",
+                "message": "Posted response to channel C07GVLMH5EG thread 1768927632.159269",
+                "timestamp": "2025-06-20T17:27:16Z",
+            },
+        ]
+        chains = discover_correlations(logs)
+        
+        # Should form a single chain
+        assert len(chains) >= 1
+        main_chain = max(chains, key=lambda c: c.component_count)
+        
+        # Chain should span multiple components
+        assert main_chain.component_count >= 3
+        
+        # Verify log groups are represented
+        log_groups = {e.raw.get("log_group") for e in main_chain.entries}
+        assert "/aws/sqs/slack-events" in log_groups
+        assert "/aws/lambda/support-bot-orchestrator" in log_groups
+        assert "/aws/bedrock/support-bot-agent" in log_groups
+        
+        # Thread ID should be identified as bridge value
+        bridge_keys = list(main_chain.bridge_values.keys())
+        assert any("1768927632.159269" in k for k in bridge_keys)

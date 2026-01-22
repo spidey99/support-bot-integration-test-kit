@@ -70,6 +70,18 @@ COMPONENT_PATTERNS: dict[str, list[str]] = {
     "sns": ["sns", "topic", "subscription", "publish"],
 }
 
+# Constants for input/error extraction
+MAX_MESSAGE_LENGTH = 500  # Max length for message content in extracted data
+
+# Patterns for detecting error conditions in log messages
+ERROR_PATTERNS = ("exception", "traceback", "failed", "failure", "error:")
+
+# Patterns for detecting response content in log messages
+RESPONSE_PATTERNS = ("response", "replied", "posted", "returned", "result")
+
+# Patterns for detecting retry attempts in log messages
+RETRY_PATTERNS = ("retry", "retrying", "attempt", "retried", "backoff")
+
 
 @dataclass
 class CorrelationValue:
@@ -656,6 +668,187 @@ def summarize_chains(chains: list[CorrelationChain]) -> str:
     return "\n".join(lines)
 
 
+def _extract_input_data(entry: LogEntry) -> dict[str, Any] | None:
+    """
+    Extract input/request data from a log entry.
+    
+    Looks for input data in:
+    1. Explicit 'request' or 'input' fields
+    2. Embedded dicts in the 'message' field
+    3. Structured fields that represent input (body, payload, etc.)
+    """
+    raw = entry.raw
+    
+    # Check explicit fields first
+    if raw.get("request"):
+        return raw["request"]
+    if raw.get("input"):
+        return raw["input"]
+    if raw.get("body"):
+        return raw["body"]
+    if raw.get("payload"):
+        return raw["payload"]
+    
+    # Try to extract embedded dict from message
+    message = raw.get("message", "")
+    if isinstance(message, str):
+        embedded = try_parse_python_dict_repr(message)
+        if embedded:
+            return embedded
+    
+    # Build input summary from relevant fields
+    input_fields = {}
+    for key in ("text", "userMessage", "inputText", "query", "prompt"):
+        if key in raw:
+            input_fields[key] = raw[key]
+    
+    # Include log metadata as context
+    input_fields["_log_level"] = raw.get("level", "INFO")
+    input_fields["_log_message"] = message[:MAX_MESSAGE_LENGTH] if isinstance(message, str) else str(message)[:MAX_MESSAGE_LENGTH]
+    if raw.get("logger_name"):
+        input_fields["_logger"] = raw["logger_name"]
+    if raw.get("appname"):
+        input_fields["_appname"] = raw["appname"]
+    
+    return input_fields if input_fields else None
+
+
+def _extract_response_data(entry: LogEntry) -> dict[str, Any] | None:
+    """
+    Extract response/output data from a log entry.
+    
+    Looks for response patterns in message content.
+    """
+    raw = entry.raw
+    
+    # Check explicit fields first
+    if raw.get("response"):
+        return raw["response"]
+    if raw.get("output"):
+        return raw["output"]
+    if raw.get("result"):
+        return raw["result"]
+    
+    # Check for response patterns in message
+    message = raw.get("message", "")
+    if isinstance(message, str):
+        message_lower = message.lower()
+        
+        # Look for response indicators
+        if any(pattern in message_lower for pattern in RESPONSE_PATTERNS):
+            # Try to extract embedded dict
+            embedded = try_parse_python_dict_repr(message)
+            if embedded:
+                return embedded
+            
+            # Return message as response summary
+            return {"_response_message": message[:MAX_MESSAGE_LENGTH]}
+    
+    return None
+
+
+def _detect_error(entry: LogEntry) -> dict[str, Any] | None:
+    """
+    Detect error status from a log entry.
+    
+    Checks:
+    1. Explicit 'error' field
+    2. Log level (ERROR, CRITICAL, FATAL)
+    3. Error patterns in message
+    """
+    raw = entry.raw
+    
+    # Check explicit error field
+    if raw.get("error"):
+        error_data = raw["error"]
+        if isinstance(error_data, dict):
+            return error_data
+        return {"message": str(error_data)}
+    
+    # Check log level
+    level = str(raw.get("level", "")).upper()
+    if level in ("ERROR", "CRITICAL", "FATAL", "SEVERE"):
+        error_info: dict[str, Any] = {
+            "level": level,
+        }
+        
+        message = raw.get("message", "")
+        if isinstance(message, str):
+            error_info["message"] = message[:MAX_MESSAGE_LENGTH]
+            
+            # Try to extract exception details from message
+            embedded = try_parse_python_dict_repr(message)
+            if embedded:
+                error_info["details"] = embedded
+        
+        return error_info
+    
+    # Check for error patterns in message (even if level is INFO/WARNING)
+    message = raw.get("message", "")
+    if isinstance(message, str):
+        message_lower = message.lower()
+        if any(pattern in message_lower for pattern in ERROR_PATTERNS):
+            return {
+                "level": level or "UNKNOWN",
+                "message": message[:MAX_MESSAGE_LENGTH],
+            }
+    
+    return None
+
+
+def _detect_attempt(entry: LogEntry) -> int:
+    """
+    Detect retry attempt number from a log entry.
+    
+    Checks:
+    1. Explicit 'attempt' or 'retry' field
+    2. Retry patterns in message (extracts attempt number if present)
+    
+    Returns:
+        Attempt number (1 = first attempt, 2+ = retry)
+    """
+    raw = entry.raw
+    
+    # Check explicit attempt field
+    attempt = raw.get("attempt")
+    if attempt is not None:
+        try:
+            return int(attempt)
+        except (ValueError, TypeError):
+            pass
+    
+    # Check explicit retry field
+    retry = raw.get("retry")
+    if retry is not None:
+        try:
+            # If retry=2, that means attempt=3
+            return int(retry) + 1
+        except (ValueError, TypeError):
+            pass
+    
+    # Check for retry patterns in message
+    message = raw.get("message", "")
+    if isinstance(message, str):
+        message_lower = message.lower()
+        
+        # Check for retry indicators
+        if any(pattern in message_lower for pattern in RETRY_PATTERNS):
+            # Try to extract attempt number from message
+            import re
+            # Look for patterns like "attempt 2", "retry 3", "attempt: 2"
+            match = re.search(r'(?:attempt|retry)[:\s]*(\d+)', message_lower)
+            if match:
+                try:
+                    return int(match.group(1))
+                except ValueError:
+                    pass
+            # If retry pattern found but no number, assume it's at least attempt 2
+            return 2
+    
+    # Default: first attempt
+    return 1
+
+
 def chain_to_spans(chain: CorrelationChain, chain_id: str) -> list["Span"]:
     """
     Convert a CorrelationChain to a list of Spans.
@@ -709,18 +902,26 @@ def chain_to_spans(chain: CorrelationChain, chain_id: str) -> list["Span"]:
                 session_id = cv.value  # Also use as session_id
                 break
         
+        # Extract input, response, and error data from log entry
+        request_data = _extract_input_data(entry)
+        response_data = _extract_response_data(entry)
+        error_data = _detect_error(entry)
+        attempt = _detect_attempt(entry)
+        
         span = Span(
             span_id=f"{chain_id}-{i}",
             parent_span_id=f"{chain_id}-{i-1}" if i > 0 else None,
             component=entry.component,
             operation=operation,
             ts_start=ts,
+            ts_end=ts,  # Use same timestamp to enable response event rendering
+            attempt=attempt,
             itk_trace_id=chain_id,
             thread_id=thread_id or primary_bridge,
             session_id=session_id or primary_bridge,
-            request=entry.raw.get("request"),
-            response=entry.raw.get("response"),
-            error=entry.raw.get("error"),
+            request=request_data,
+            response=response_data,
+            error=error_data,
         )
         spans.append(span)
     

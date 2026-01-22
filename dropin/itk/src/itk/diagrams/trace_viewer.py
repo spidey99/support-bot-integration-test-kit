@@ -189,8 +189,8 @@ def _extract_messages_timeline(
         if span.ts_start:
             events.append((span.ts_start, False, span))
 
-        # Response event at ts_end (only if has response or error)
-        if span.ts_end and (span.response is not None or span.error is not None):
+        # Response event at ts_end (always create to show success/error indicators)
+        if span.ts_end:
             events.append((span.ts_end, True, span))
 
     # Sort by timestamp, then responses after requests at same time
@@ -446,7 +446,7 @@ def _render_svg_message_timeline(
             return f'''
         <g class="message self-message {error_class} {response_class}" data-span-id="{msg.span_id}" data-span='{span_data}'>
             <!-- Exit indicator - arrow from lifeline to left -->
-            <line x1="{from_x - 8}" y1="{y}" x2="{from_x - 50}" y2="{y}"
+            <line x1="{from_x - 4}" y1="{y}" x2="{from_x - 50}" y2="{y}"
                   stroke="currentColor" stroke-width="2" {dash_array} marker-end="{arrow_marker}"/>
             <!-- Status indicator and latency on left -->
             <text x="{from_x - 58}" y="{y + 4}" text-anchor="end" class="status-indicator {status_class}">{status_icon} {latency_text}</text>
@@ -456,7 +456,7 @@ def _render_svg_message_timeline(
             return f'''
         <g class="message self-message {error_class} {response_class}" data-span-id="{msg.span_id}" data-span='{span_data}'>
             <!-- Entry indicator - short horizontal line with downward arrow -->
-            <line x1="{from_x - 50}" y1="{y}" x2="{from_x - 8}" y2="{y}"
+            <line x1="{from_x - 50}" y1="{y}" x2="{from_x - 4}" y2="{y}"
                   stroke="currentColor" stroke-width="2" marker-end="{arrow_marker}"/>
             <!-- Entry marker -->
             <text x="{from_x - 58}" y="{y + 4}" text-anchor="end" class="message-label">▶ {html.escape(msg.operation)}</text>
@@ -466,7 +466,7 @@ def _render_svg_message_timeline(
         # Normal arrow between participants
         direction = 1 if to_x > from_x else -1
         mid_x = (from_x + to_x) // 2
-        arrow_offset = 8 * direction
+        arrow_offset = 4 * direction  # Reduced offset for closer connection to lifelines
 
         return f'''
         <g class="message {error_class} {response_class}" data-span-id="{msg.span_id}" data-span='{span_data}'>
@@ -502,7 +502,7 @@ def _render_svg_message_legacy(
         return f'''
         <g class="message self-message {error_class}" data-span-id="{msg.span_id}" data-span='{span_data}'>
             <!-- Entry arrow from left -->
-            <line x1="{from_x - 50}" y1="{y}" x2="{from_x - 8}" y2="{y}"
+            <line x1="{from_x - 50}" y1="{y}" x2="{from_x - 4}" y2="{y}"
                   stroke="currentColor" stroke-width="2" marker-end="url(#arrowhead)"/>
             <!-- Entry label -->
             <text x="{from_x - 58}" y="{y + 4}" text-anchor="end" class="message-label">▶ {html.escape(msg.operation)}</text>
@@ -512,7 +512,7 @@ def _render_svg_message_legacy(
             <!-- Status indicator inside box -->
             <text x="{from_x}" y="{y + activation_height // 2 + 4}" text-anchor="middle" class="status-indicator {status_class}">{status_icon}</text>
             <!-- Exit arrow to left (mirror of entry) -->
-            <line x1="{from_x - 8}" y1="{y + activation_height}" x2="{from_x - 50}" y2="{y + activation_height}"
+            <line x1="{from_x - 4}" y1="{y + activation_height}" x2="{from_x - 50}" y2="{y + activation_height}"
                   stroke="currentColor" stroke-width="2" stroke-dasharray="4,2" marker-end="url(#arrowhead-return)"/>
             <!-- Latency on exit -->
             <text x="{from_x - 58}" y="{y + activation_height + 4}" text-anchor="end" class="message-latency">◀ {latency_text}</text>
@@ -522,7 +522,7 @@ def _render_svg_message_legacy(
         # Normal arrow with call/return pair
         direction = 1 if to_x > from_x else -1
         mid_x = (from_x + to_x) // 2
-        arrow_offset = 10 * direction
+        arrow_offset = 4 * direction  # Reduced offset for closer connection to lifelines
         activation_height = 25
         return_y = y + activation_height
 
